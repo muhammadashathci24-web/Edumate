@@ -19,6 +19,13 @@ export const Navbar: React.FC = () => {
     student: 'badge-student',
   }[profile.role] || 'badge-student';
 
+  const displayName =
+    profile.name && profile.name !== 'Demo System Administrator'
+      ? profile.name
+      : profile.role === 'admin'
+      ? 'Administrator'
+      : profile.email || 'User';
+
   return (
     <header className="navbar">
       <div className="navbar-inner">
@@ -34,8 +41,8 @@ export const Navbar: React.FC = () => {
 
         <div className="nav-user-actions">
           <div className="user-identity">
-            <span className="user-name-text" title={profile.name}>
-              {profile.name}
+            <span className="user-name-text" title={displayName}>
+              {displayName}
             </span>
             <span className={`badge ${badgeClass}`}>{roleLabel}</span>
           </div>

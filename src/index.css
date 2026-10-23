@@ -250,7 +250,8 @@ a:hover {
   border: 1px solid #fecaca;
 }
 
-.badge-demo {
+.badge-demo,
+.badge-warning {
   background-color: #fffbeb;
   color: #b45309;
   border: 1px solid #fde68a;

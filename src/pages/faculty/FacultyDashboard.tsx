@@ -321,9 +321,6 @@ export const FacultyDashboard: React.FC = () => {
               Manage student attendance, evaluations, and assignments for your assigned class sections.
             </p>
           </div>
-          {profile?.isDemo && (
-            <span className="badge badge-demo">Demo Faculty Account</span>
-          )}
         </div>
       </div>
 
@@ -445,10 +442,9 @@ export const FacultyDashboard: React.FC = () => {
                         </td>
                         <td>
                           <strong>{stu.name}</strong>
-                          {stu.isDemo && <span className="badge badge-demo" style={{ marginLeft: '6px' }}>Demo</span>}
                         </td>
                         <td>{stu.email}</td>
-                        <td>{stu.phone || 'N/A'}</td>
+                        <td>{stu.phone || 'Not provided'}</td>
                         <td>
                           <span className={`badge ${stu.status === 'active' ? 'badge-active' : 'badge-disabled'}`}>
                             {stu.status === 'active' ? 'Active' : 'Disabled'}

@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { EmptyState } from './EmptyState';
 import { Alert } from '../../components/Alert';
 import { Assignment, Course } from '../../lib/types';
-import { User, BookOpen, CalendarCheck, Award, Mail, Phone, ShieldAlert, GraduationCap, AlertTriangle } from 'lucide-react';
+import { User, BookOpen, CalendarCheck, Award, Mail, Phone, ShieldAlert, GraduationCap } from 'lucide-react';
 
 interface AttendanceItem {
   id: string;
@@ -85,9 +85,6 @@ export const StudentDashboard: React.FC = () => {
               Welcome back, {profile?.name}. View your academic profile, assignments, attendance, and marks.
             </p>
           </div>
-          {profile?.isDemo && (
-            <span className="badge badge-demo">Demo Student Account</span>
-          )}
         </div>
       </div>
 
@@ -304,30 +301,9 @@ export const StudentDashboard: React.FC = () => {
                 </p>
               </div>
             </div>
-            <span className="badge badge-demo">8 Courses</span>
           </div>
 
           <div className="card-body">
-            {/* Disclaimer notice */}
-            <div
-              style={{
-                marginBottom: '1.25rem',
-                padding: '0.85rem 1rem',
-                backgroundColor: '#fef3c7',
-                border: '1px solid #fde68a',
-                borderRadius: 'var(--radius-sm)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '0.65rem',
-                fontSize: '0.82rem',
-                color: '#92400e',
-              }}
-            >
-              <AlertTriangle size={18} style={{ color: '#d97706', flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <strong>Demo Notice:</strong> Faculty names and instructor assignments below are fictional demo data for demonstration purposes only. Machine Learning Laboratory (<code>BAI505L</code>) is co-instructed by Dr. Dev Arin and Mrs. Nila Varen.
-              </div>
-            </div>
 
             {courses.length === 0 ? (
               <EmptyState
@@ -361,18 +337,13 @@ export const StudentDashboard: React.FC = () => {
                             <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
                               {course.title}
                             </div>
-                            {course.isDemo && (
-                              <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                                Fictional Demo Course
-                              </span>
-                            )}
                           </td>
                           <td>
                             <div style={{ fontSize: '0.82rem', fontWeight: 500 }}>
                               {course.type}
                             </div>
                             <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                              {course.credits} Credits
+                              Credits: {course.credits ? course.credits : 'Not provided'}
                             </span>
                           </td>
                           <td>
@@ -617,7 +588,7 @@ export const StudentDashboard: React.FC = () => {
                                   pct >= 75
                                     ? 'badge-active'
                                     : pct >= 50
-                                    ? 'badge-demo'
+                                    ? 'badge-warning'
                                     : 'badge-disabled'
                                 }`}
                               >

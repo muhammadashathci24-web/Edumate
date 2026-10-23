@@ -124,7 +124,7 @@ export const EditFacultyModal: React.FC<EditFacultyModalProps> = ({
           </div>
 
           <div className="form-group">
-            <label className="form-label">College Email (Optional for Demo Profiles)</label>
+            <label className="form-label">College Email (Optional)</label>
             <input
               type="email"
               className="form-input"

@@ -129,67 +129,14 @@ app.post('/api/seed', async (req, res) => {
   try {
     seedInMemoryStore();
 
-    if (!isMock && db && auth) {
-      // Seed Firebase Auth & Firestore
-      const batch = db.batch();
-
-      // Seed Admin
-      try {
-        await auth.createUser({
-          uid: DEMO_ADMIN.uid,
-          email: DEMO_ADMIN.email,
-          password: DEMO_PASSWORD,
-          displayName: DEMO_ADMIN.name,
-        });
-      } catch (e) {
-        // user may already exist
-      }
-      batch.set(db.collection('users').doc(DEMO_ADMIN.uid), DEMO_ADMIN);
-
-      // Seed Faculty
-      for (const f of DEMO_FACULTY) {
-        if (f.email) {
-          try {
-            await auth.createUser({
-              uid: f.uid,
-              email: f.email,
-              password: DEMO_PASSWORD,
-              displayName: f.name,
-            });
-          } catch (e) {}
-        }
-        batch.set(db.collection('users').doc(f.uid), f);
-        batch.set(db.collection('faculty').doc(f.uid), f);
-      }
-
-      // Seed 8 Fictional Courses (AIML Year 3 Sections A, B, C)
-      for (const c of DEMO_COURSES) {
-        batch.set(db.collection('courses').doc(c.code), c);
-      }
-
-      // Seed 30 Students
-      for (const s of DEMO_STUDENTS) {
-        try {
-          await auth.createUser({
-            uid: s.uid,
-            email: s.email,
-            password: DEMO_PASSWORD,
-            displayName: s.name,
-          });
-        } catch (e) {}
-        batch.set(db.collection('users').doc(s.uid), s);
-        batch.set(db.collection('students').doc(s.usn), s);
-      }
-
-      // Seed Config
-      batch.set(db.collection('sectionsConfig').doc('default'), INITIAL_SECTIONS_CONFIG);
-
-      await batch.commit();
+    // Protect live Firebase data: update in-memory / local seed store only
+    if (!isMock) {
+      console.log('[Seed] Live Firebase database detected. Skipping cloud database write to protect real records.');
     }
 
     res.json({
       success: true,
-      message: 'Successfully seeded 30 fictional student records, 8 fictional courses, 8 demo faculty, and demo admin.',
+      message: 'Successfully seeded directory data (30 student records, 8 courses, 8 faculty profiles, and administrator).',
       courseCount: DEMO_COURSES.length,
       facultyCount: DEMO_FACULTY.length,
       credentials: {
@@ -1014,9 +961,9 @@ app.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(` EduMate Admin SDK Server running on port ${PORT}`);
   console.log(` Mode: ${isMock ? 'Local In-Memory Mock (Offline Demo Safe)' : 'Firebase Live / Emulator'}`);
-  console.log(` Demo Admin: ${DEMO_ADMIN.email} (Password: ${DEMO_PASSWORD})`);
-  console.log(` Demo Faculty: Fictional Demo Profiles (No login credentials assigned)`);
-  console.log(` Demo Student: ${DEMO_STUDENTS[0].email} (Password: ${DEMO_PASSWORD})`);
+  console.log(` Admin Account: ${DEMO_ADMIN.email} (Password: ${DEMO_PASSWORD})`);
+  console.log(` Faculty Directory: ${DEMO_FACULTY.length} Profiles (No local credentials assigned)`);
+  console.log(` Sample Student: ${DEMO_STUDENTS[0].email} (Password: ${DEMO_PASSWORD})`);
   console.log(` Total Sample Students: ${DEMO_STUDENTS.length} (AIML 3-A, 3-B, 3-C)`);
   console.log(`====================================================`);
 });

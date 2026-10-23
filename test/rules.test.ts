@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEMO_COURSES, DEMO_FACULTY } from '../server/seedData.js';
+import { DEMO_COURSES, DEMO_FACULTY, DEMO_STUDENTS, DEMO_ADMIN } from '../server/seedData.js';
 
 /**
  * EduMate Security Rules Verification Suite
@@ -235,7 +235,7 @@ describe('Firestore Security Rules Permissions Matrix', () => {
     });
   });
 
-  describe('6. Course Catalog & Fictional Faculty Directory Verification', () => {
+  describe('6. Course Catalog & Natural Faculty Directory Verification', () => {
     it('confirms there are exactly eight active course records', () => {
       expect(DEMO_COURSES).toHaveLength(8);
     });
@@ -263,10 +263,10 @@ describe('Firestore Security Rules Permissions Matrix', () => {
       const bai505l = bai505lRecords[0];
       expect(bai505l.title).toBe('Machine Learning Laboratory');
       expect(bai505l.facultyNames).toHaveLength(2);
-      expect(bai505l.facultyNames).toContain('Dr. Dev Arin (DA)');
-      expect(bai505l.facultyNames).toContain('Mrs. Nila Varen (NV)');
-      expect(bai505l.facultyIds).toContain('fac-demo-da');
-      expect(bai505l.facultyIds).toContain('fac-demo-nv');
+      expect(bai505l.facultyNames).toContain('Dr. Vivek Kulkarni');
+      expect(bai505l.facultyNames).toContain('Mrs. Asha Nair');
+      expect(bai505l.facultyIds).toContain('fac-vk');
+      expect(bai505l.facultyIds).toContain('fac-an');
     });
 
     it('confirms courses are strictly scoped to AIML Year 3 (Sections A, B, C)', () => {
@@ -288,14 +288,15 @@ describe('Firestore Security Rules Permissions Matrix', () => {
       expect(uniqueNames.size).toBe(8);
     });
 
-    it('confirms each faculty profile is clearly marked as fictional demo data', () => {
+    it('confirms faculty profiles use natural names and keep internal sample metadata', () => {
       DEMO_FACULTY.forEach((fac) => {
-        expect(fac.isDemo).toBe(true);
-        expect(fac.isFictionalDemo).toBe(true);
+        expect(fac.isSampleData).toBe(true);
+        expect(fac.name).not.toContain('Fictional');
+        expect(fac.name).not.toContain('Demo');
       });
     });
 
-    it('confirms no email addresses, phone numbers, or passwords were invented for fictional faculty', () => {
+    it('confirms no email addresses, phone numbers, or passwords were invented for faculty', () => {
       DEMO_FACULTY.forEach((fac) => {
         expect(fac.email).toBeUndefined();
         expect(fac.phone).toBeUndefined();
@@ -309,15 +310,33 @@ describe('Firestore Security Rules Permissions Matrix', () => {
         return fac?.courseCodes || [];
       };
 
-      expect(getFacultyCourses('AV')).toContain('BAI501G');
-      expect(getFacultyCourses('MS')).toContain('BAI502G');
-      expect(getFacultyCourses('TN')).toContain('BAI503T');
-      expect(getFacultyCourses('DA')).toContain('BAI504T');
-      expect(getFacultyCourses('DA')).toContain('BAI505L'); // Co-instructor for lab
-      expect(getFacultyCourses('NV')).toContain('BAI505L'); // Co-instructor for lab
-      expect(getFacultyCourses('KE')).toContain('BAI506E2');
-      expect(getFacultyCourses('SI')).toContain('BBS508AK');
-      expect(getFacultyCourses('RN')).toContain('BBS509TK');
+      expect(getFacultyCourses('AM')).toContain('BAI501G');
+      expect(getFacultyCourses('KR')).toContain('BAI502G');
+      expect(getFacultyCourses('NS')).toContain('BAI503T');
+      expect(getFacultyCourses('VK')).toContain('BAI504T');
+      expect(getFacultyCourses('VK')).toContain('BAI505L'); // Co-instructor for lab
+      expect(getFacultyCourses('AN')).toContain('BAI505L'); // Co-instructor for lab
+      expect(getFacultyCourses('PH')).toContain('BAI506E2');
+      expect(getFacultyCourses('MD')).toContain('BBS508AK');
+      expect(getFacultyCourses('DI')).toContain('BBS509TK');
+    });
+
+    it('confirms all student names are natural and emails do not contain demo', () => {
+      expect(DEMO_STUDENTS).toHaveLength(30);
+      DEMO_STUDENTS.forEach((student) => {
+        expect(student.name).not.toContain('Fictional');
+        expect(student.name).not.toContain('Demo');
+        expect(student.email).not.toContain('demo');
+        expect(student.email.endsWith('@example.edu')).toBe(true);
+        expect(student.phone).toBeUndefined();
+      });
+    });
+
+    it('confirms admin profile uses natural name and email without demo', () => {
+      expect(DEMO_ADMIN.name).toBe('Administrator');
+      expect(DEMO_ADMIN.name).not.toContain('Demo');
+      expect(DEMO_ADMIN.email).toBe('admin@example.edu');
+      expect(DEMO_ADMIN.email).not.toContain('demo');
     });
   });
 });

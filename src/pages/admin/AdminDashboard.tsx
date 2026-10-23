@@ -17,7 +17,6 @@ import {
   RefreshCw,
   GraduationCap,
   BookOpen,
-  AlertTriangle,
 } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
@@ -132,9 +131,9 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Reseed demo data handler
+  // Reseed directory data handler
   const handleReseed = async () => {
-    if (!window.confirm('Reset directory with the 30 fictional demo students (AIML Year 3 A, B, C) and demo faculty?')) {
+    if (!window.confirm('Reset directory data to default sample records?')) {
       return;
     }
     setLoading(true);
@@ -227,7 +226,7 @@ export const AdminDashboard: React.FC = () => {
               disabled={loading}
               title="Re-initialize sample data"
             >
-              <RefreshCw size={15} className={loading ? 'spin' : ''} /> {loading ? 'Loading...' : 'Reset Demo Data'}
+              <RefreshCw size={15} className={loading ? 'spin' : ''} /> {loading ? 'Loading...' : 'Reset Directory'}
             </button>
           </div>
         </div>
@@ -290,10 +289,10 @@ export const AdminDashboard: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                  Fictional Demo Faculty
+                  Faculty Directory
                 </span>
                 <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0369a1', marginTop: '0.2rem' }}>
-                  {faculty.length} Profiles
+                  {faculty.length} Faculty Members
                 </div>
               </div>
               <div style={{ padding: '0.65rem', background: '#e0f2fe', borderRadius: 'var(--radius-sm)', color: '#0369a1' }}>
@@ -301,7 +300,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-              Linked to course catalog (Demo only)
+              Assigned teaching faculty
             </div>
           </div>
         </div>
@@ -348,31 +347,9 @@ export const AdminDashboard: React.FC = () => {
                 Active curriculum courses for 3rd-year Artificial Intelligence &amp; Machine Learning students (Sections A, B, and C).
               </p>
             </div>
-            <span className="badge badge-demo">8 Demo Courses</span>
           </div>
 
           <div className="card-body">
-            {/* Demo Notice Banner */}
-            <div
-              style={{
-                marginBottom: '1.25rem',
-                padding: '0.85rem 1rem',
-                backgroundColor: '#fef3c7',
-                border: '1px solid #fde68a',
-                borderRadius: 'var(--radius-sm)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '0.65rem',
-                fontSize: '0.82rem',
-                color: '#92400e',
-              }}
-            >
-              <AlertTriangle size={18} style={{ color: '#d97706', flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <strong>Demo Purpose Only:</strong> The eight courses below are mapped exclusively to third-year AIML students in sections A, B, and C. Faculty instructors listed are fictional demo profiles. <strong>BAI505L (Machine Learning Laboratory)</strong> is configured as a single course record co-instructed by both Dr. Dev Arin and Mrs. Nila Varen.
-              </div>
-            </div>
-
             {/* Filter */}
             <div className="filter-bar">
               <div style={{ position: 'relative', flex: '1 1 260px' }}>
@@ -426,18 +403,13 @@ export const AdminDashboard: React.FC = () => {
                           </td>
                           <td>
                             <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>{c.title}</div>
-                            {c.isDemo && (
-                              <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                                Fictional Demo Course
-                              </span>
-                            )}
                           </td>
                           <td>
                             <div style={{ fontSize: '0.82rem', fontWeight: 500 }}>
-                              {c.type}
+                              {c.type || 'Course'}
                             </div>
                             <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                              {c.credits} Credits
+                              {c.credits ? `${c.credits} Credits` : 'Credits: Not provided'}
                             </span>
                           </td>
                           <td>
@@ -474,8 +446,8 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                               ))}
                               {isMultiFaculty && (
-                                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                                  Single lab course shared between both instructors
+                                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                  Joint course co-instructed by both faculty members
                                 </span>
                               )}
                             </div>
@@ -623,17 +595,12 @@ export const AdminDashboard: React.FC = () => {
                           </td>
                           <td>
                             <strong>{stu.name}</strong>
-                            {stu.isDemo && (
-                              <span className="badge badge-demo" style={{ marginLeft: '6px' }}>
-                                Demo
-                              </span>
-                            )}
                           </td>
                           <td>{stu.email}</td>
                           <td>
                             {stu.department} &bull; Y{stu.year}-{stu.section}
                           </td>
-                          <td>{stu.phone || 'N/A'}</td>
+                          <td>{stu.phone || 'Not provided'}</td>
                           <td>
                             <span className={`badge ${isActive ? 'badge-active' : 'badge-disabled'}`}>
                               {isActive ? 'Active' : 'Disabled'}
@@ -690,26 +657,6 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           <div className="card-body">
-            {/* Notice Banner */}
-            <div
-              style={{
-                marginBottom: '1.25rem',
-                padding: '0.85rem 1rem',
-                backgroundColor: '#eff6ff',
-                border: '1px solid #bfdbfe',
-                borderRadius: 'var(--radius-sm)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '0.65rem',
-                fontSize: '0.82rem',
-                color: '#1e40af',
-              }}
-            >
-              <AlertTriangle size={18} style={{ color: '#2563eb', flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <strong>Fictional Demo Faculty Profiles:</strong> These 8 faculty profiles are created for demo purposes only and are linked to the 8 AIML Year 3 courses. In accordance with policy, no email addresses, phone numbers, passwords, or login credentials have been invented. These fictional names must be replaced with college-approved details before production launch.
-              </div>
-            </div>
 
             <div className="filter-bar">
               <div style={{ position: 'relative', flex: '1 1 240px' }}>
@@ -744,7 +691,7 @@ export const AdminDashboard: React.FC = () => {
                   <thead>
                     <tr>
                       <th>Faculty Member</th>
-                      <th>Account Credentials</th>
+                      <th>Official Email</th>
                       <th>Department</th>
                       <th>Assigned Course(s)</th>
                       <th>Assigned Class Sections</th>
@@ -766,18 +713,13 @@ export const AdminDashboard: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            {fac.isFictionalDemo && (
-                              <span className="badge badge-demo" style={{ marginTop: '0.2rem', display: 'inline-block' }}>
-                                Fictional Demo
-                              </span>
-                            )}
                           </td>
                           <td>
                             {fac.email ? (
                               <span>{fac.email}</span>
                             ) : (
-                              <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                                Demo Profile (No credentials assigned)
+                              <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+                                Not provided
                               </span>
                             )}
                           </td>
@@ -796,7 +738,7 @@ export const AdminDashboard: React.FC = () => {
                                     fontSize: '0.78rem',
                                     fontWeight: 700,
                                   }}
-                                  title={code === 'BAI505L' ? 'Co-instructed with Dr. Dev Arin / Mrs. Nila Varen' : undefined}
+                                  title={code === 'BAI505L' ? 'Co-instructed: Dr. Vivek Kulkarni & Mrs. Asha Nair' : undefined}
                                 >
                                   {code}
                                   {code === 'BAI505L' ? ' (Lab)' : ''}

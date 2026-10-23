@@ -107,7 +107,7 @@ export const SignInPage: React.FC = () => {
                     type="email"
                     className="form-input"
                     style={{ paddingLeft: '2.4rem' }}
-                    placeholder="e.g. yourname.demo@college.edu"
+                    placeholder="e.g. student@example.edu"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     autoComplete="email"
@@ -179,7 +179,7 @@ export const SignInPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Development / Demo Quick-Fill Bar */}
+        {/* Development Quick Sign-In */}
         <div
           style={{
             marginTop: '1.5rem',
@@ -197,30 +197,30 @@ export const SignInPage: React.FC = () => {
               gap: '0.4rem',
               fontSize: '0.8rem',
               fontWeight: 700,
-              color: 'var(--color-warning)',
+              color: 'var(--color-primary)',
               marginBottom: '0.5rem',
             }}
           >
             <HelpCircle size={15} />
-            <span>Local Evaluation & Demo Accounts (Password: Demo@12345)</span>
+            <span>Local Development Quick Sign-In</span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => fillDemoAccount('admin@college.edu')}
+              onClick={() => fillDemoAccount('admin@example.edu')}
             >
-              Admin Demo
+              Administrator
             </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => fillDemoAccount('aarav.demo@college.edu')}
+              onClick={() => fillDemoAccount('aarav.sharma@example.edu')}
             >
-              Student (AIML 3-A)
+              Student (Aarav Sharma)
             </button>
-            <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', fontStyle: 'italic', marginLeft: '4px' }}>
-              (Fictional demo faculty have no login credentials assigned)
+            <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', marginLeft: '4px' }}>
+              (Teaching faculty profiles have not been provisioned credentials)
             </span>
           </div>
         </div>
