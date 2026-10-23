@@ -37,12 +37,25 @@ export interface Student {
   createdAt?: string;
 }
 
+export interface Course {
+  code: string;
+  title: string;
+  department: string;
+  year: number;
+  sections: string[];
+  facultyIds: string[];
+  facultyNames: string[];
+  isDemo?: boolean;
+}
+
 export interface Faculty {
   uid: string;
   name: string;
-  email: string;
+  initials?: string;
+  email?: string;
   department: string;
   assignedClasses: ClassSection[];
+  courseCodes?: string[];
   status: UserStatus;
   isDemo?: boolean;
   createdAt?: string;

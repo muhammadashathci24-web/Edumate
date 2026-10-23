@@ -73,7 +73,7 @@ export const EditFacultyModal: React.FC<EditFacultyModalProps> = ({
     setError(null);
 
     if (!name.trim()) return setError('Name is required.');
-    if (!email.trim() || !email.includes('@')) return setError('Valid email is required.');
+    if (email && email.trim() && !email.includes('@')) return setError('Valid email is required.');
     if (assignedClasses.length === 0) return setError('At least one assigned class section is required.');
 
     setLoading(true);
@@ -86,7 +86,7 @@ export const EditFacultyModal: React.FC<EditFacultyModalProps> = ({
         },
         body: JSON.stringify({
           name: name.trim(),
-          email: email.trim().toLowerCase(),
+          email: email ? email.trim().toLowerCase() : '',
           department,
           assignedClasses,
         }),
@@ -124,13 +124,13 @@ export const EditFacultyModal: React.FC<EditFacultyModalProps> = ({
           </div>
 
           <div className="form-group">
-            <label className="form-label">College Email <span className="required">*</span></label>
+            <label className="form-label">College Email (Optional for Demo Profiles)</label>
             <input
               type="email"
               className="form-input"
+              placeholder="e.g. faculty@college.edu (optional)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
             />
           </div>
 

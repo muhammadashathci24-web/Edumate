@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Alert } from '../../components/Alert';
-import { Student, Faculty, SectionsConfig } from '../../lib/types';
+import { Student, Faculty, SectionsConfig, Course } from '../../lib/types';
 import { AddStudentModal } from './AddStudentModal';
 import { EditStudentModal } from './EditStudentModal';
 import { AddFacultyModal } from './AddFacultyModal';
@@ -17,15 +17,18 @@ import {
   Edit2,
   RefreshCw,
   GraduationCap,
+  BookOpen,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
   const { token } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'students' | 'faculty'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'courses'>('courses');
 
   const [students, setStudents] = useState<Student[]>([]);
   const [faculty, setFaculty] = useState<Faculty[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [config, setConfig] = useState<SectionsConfig>({
     departments: ['AIML', 'CSE', 'IS', 'MECH', 'EC', 'Robotics'],
     years: [1, 2, 3, 4],
@@ -42,8 +45,9 @@ export const AdminDashboard: React.FC = () => {
   const [selectedSection, setSelectedSection] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
 
-  // Filter State for Faculty
+  // Filter State for Faculty & Courses
   const [facultySearchQuery, setFacultySearchQuery] = useState('');
+  const [courseSearchQuery, setCourseSearchQuery] = useState('');
 
   // Modals state
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
@@ -64,6 +68,12 @@ export const AdminDashboard: React.FC = () => {
       const configRes = await fetch('/api/sections-config');
       if (configRes.ok) {
         setConfig(await configRes.json());
+      }
+
+      // Courses (8 active courses)
+      const coursesRes = await fetch('/api/courses');
+      if (coursesRes.ok) {
+        setCourses(await coursesRes.json());
       }
 
       // Students
@@ -168,8 +178,21 @@ export const AdminDashboard: React.FC = () => {
     return (
       !q ||
       f.name.toLowerCase().includes(q) ||
-      f.email.toLowerCase().includes(q) ||
-      f.department.toLowerCase().includes(q)
+      (f.email ? f.email.toLowerCase().includes(q) : false) ||
+      f.department.toLowerCase().includes(q) ||
+      (f.initials ? f.initials.toLowerCase().includes(q) : false) ||
+      (f.courseCodes ? f.courseCodes.some((code) => code.toLowerCase().includes(q)) : false)
+    );
+  });
+
+  // Filtered Courses
+  const filteredCourses = courses.filter((c) => {
+    const q = courseSearchQuery.toLowerCase().trim();
+    return (
+      !q ||
+      c.code.toLowerCase().includes(q) ||
+      c.title.toLowerCase().includes(q) ||
+      (c.facultyNames ? c.facultyNames.some((fn) => fn.toLowerCase().includes(q)) : false)
     );
   });
 
@@ -247,18 +270,18 @@ export const AdminDashboard: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                  Faculty Members
+                  Active Course Catalog
                 </span>
-                <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text-main)', marginTop: '0.2rem' }}>
-                  {faculty.length}
+                <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-primary)', marginTop: '0.2rem' }}>
+                  {courses.length} Courses
                 </div>
               </div>
-              <div style={{ padding: '0.65rem', background: '#e0f2fe', borderRadius: 'var(--radius-sm)', color: '#0369a1' }}>
-                <GraduationCap size={24} />
+              <div style={{ padding: '0.65rem', background: '#eff6ff', borderRadius: 'var(--radius-sm)', color: 'var(--color-primary)' }}>
+                <BookOpen size={24} />
               </div>
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-              Managing departmental class sections
+              8 AIML Year 3 courses (Sections A, B, C)
             </div>
           </div>
         </div>
@@ -268,18 +291,18 @@ export const AdminDashboard: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                  Active Accounts
+                  Fictional Demo Faculty
                 </span>
-                <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-success)', marginTop: '0.2rem' }}>
-                  {students.filter((s) => s.status === 'active').length + faculty.filter((f) => f.status === 'active').length}
+                <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0369a1', marginTop: '0.2rem' }}>
+                  {faculty.length} Profiles
                 </div>
               </div>
-              <div style={{ padding: '0.65rem', background: '#ecfdf5', borderRadius: 'var(--radius-sm)', color: '#047857' }}>
-                <UserCheck size={24} />
+              <div style={{ padding: '0.65rem', background: '#e0f2fe', borderRadius: 'var(--radius-sm)', color: '#0369a1' }}>
+                <GraduationCap size={24} />
               </div>
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-              Authorized to sign in to college portal
+              Linked to course catalog (Demo only)
             </div>
           </div>
         </div>
@@ -289,11 +312,11 @@ export const AdminDashboard: React.FC = () => {
       <nav className="tabs-nav" aria-label="Admin directories">
         <button
           type="button"
-          className={`tab-btn ${activeTab === 'students' ? 'active' : ''}`}
-          onClick={() => setActiveTab('students')}
+          className={`tab-btn ${activeTab === 'courses' ? 'active' : ''}`}
+          onClick={() => setActiveTab('courses')}
         >
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Users size={16} /> Students Directory ({students.length})
+            <BookOpen size={16} /> Course Catalog ({courses.length})
           </span>
         </button>
         <button
@@ -305,7 +328,172 @@ export const AdminDashboard: React.FC = () => {
             <GraduationCap size={16} /> Faculty Directory ({faculty.length})
           </span>
         </button>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'students' ? 'active' : ''}`}
+          onClick={() => setActiveTab('students')}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Users size={16} /> Students Directory ({students.length})
+          </span>
+        </button>
       </nav>
+
+      {/* TAB 0: COURSE CATALOG */}
+      {activeTab === 'courses' && (
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <h2 className="card-title">AIML Year 3 Course Catalog</h2>
+              <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
+                Active curriculum courses for 3rd-year Artificial Intelligence &amp; Machine Learning students (Sections A, B, and C).
+              </p>
+            </div>
+            <span className="badge badge-demo">8 Demo Courses</span>
+          </div>
+
+          <div className="card-body">
+            {/* Demo Notice Banner */}
+            <div
+              style={{
+                marginBottom: '1.25rem',
+                padding: '0.85rem 1rem',
+                backgroundColor: '#fef3c7',
+                border: '1px solid #fde68a',
+                borderRadius: 'var(--radius-sm)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.65rem',
+                fontSize: '0.82rem',
+                color: '#92400e',
+              }}
+            >
+              <AlertTriangle size={18} style={{ color: '#d97706', flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <strong>Demo Purpose Only:</strong> The eight courses below are mapped exclusively to third-year AIML students in sections A, B, and C. Faculty instructors listed are fictional demo profiles. <strong>BAI505L (Machine Learning Laboratory)</strong> is configured as a single course record co-instructed by both Dr. Dev Arin and Mrs. Nila Varen.
+              </div>
+            </div>
+
+            {/* Filter */}
+            <div className="filter-bar">
+              <div style={{ position: 'relative', flex: '1 1 260px' }}>
+                <Search
+                  size={16}
+                  style={{
+                    position: 'absolute',
+                    left: '0.75rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--color-text-subtle)',
+                  }}
+                />
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ paddingLeft: '2.2rem' }}
+                  placeholder="Search by course code, title, or instructor..."
+                  value={courseSearchQuery}
+                  onChange={(e) => setCourseSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {filteredCourses.length === 0 ? (
+              <p style={{ textAlign: 'center', padding: '2.5rem 0', color: 'var(--color-text-muted)' }}>
+                No courses found matching the search criteria.
+              </p>
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '130px' }}>Course Code</th>
+                      <th>Course Title</th>
+                      <th>Type / Credits</th>
+                      <th>Eligible Class</th>
+                      <th>Assigned Faculty Instructor(s)</th>
+                      <th style={{ textAlign: 'right' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCourses.map((c) => {
+                      const isMultiFaculty = Boolean(c.facultyNames && c.facultyNames.length > 1);
+                      return (
+                        <tr key={c.code}>
+                          <td>
+                            <span className="usn-badge" style={{ fontSize: '0.85rem', fontWeight: 700 }}>
+                              {c.code}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>{c.title}</div>
+                            {c.isDemo && (
+                              <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                Fictional Demo Course
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 500 }}>
+                              {c.type}
+                            </div>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                              {c.credits} Credits
+                            </span>
+                          </td>
+                          <td>
+                            <span
+                              style={{
+                                backgroundColor: 'var(--color-bg-subtle)',
+                                padding: '0.2rem 0.5rem',
+                                borderRadius: '4px',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {c.department} &bull; Year {c.year} ({c.sections?.map((s) => `Sec ${s}`).join(', ')})
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                              {c.facultyNames?.map((name, idx) => (
+                                <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{name}</span>
+                                  {isMultiFaculty && (
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        fontSize: '0.68rem',
+                                        backgroundColor: '#e0f2fe',
+                                        color: '#0369a1',
+                                        padding: '0.1rem 0.35rem',
+                                      }}
+                                    >
+                                      Co-Instructor {idx + 1}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                              {isMultiFaculty && (
+                                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                                  Single lab course shared between both instructors
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <span className="badge badge-active">Active</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* TAB 1: STUDENTS DIRECTORY */}
       {activeTab === 'students' && (
@@ -490,7 +678,7 @@ export const AdminDashboard: React.FC = () => {
             <div>
               <h2 className="card-title">Faculty Records</h2>
               <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
-                Manage teaching faculty and their authorized class allocations.
+                Manage teaching faculty, linked courses, and authorized class allocations.
               </p>
             </div>
             <button
@@ -503,6 +691,27 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           <div className="card-body">
+            {/* Notice Banner */}
+            <div
+              style={{
+                marginBottom: '1.25rem',
+                padding: '0.85rem 1rem',
+                backgroundColor: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: 'var(--radius-sm)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.65rem',
+                fontSize: '0.82rem',
+                color: '#1e40af',
+              }}
+            >
+              <AlertTriangle size={18} style={{ color: '#2563eb', flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <strong>Fictional Demo Faculty Profiles:</strong> These 8 faculty profiles are created for demo purposes only and are linked to the 8 AIML Year 3 courses. In accordance with policy, no email addresses, phone numbers, passwords, or login credentials have been invented. These fictional names must be replaced with college-approved details before production launch.
+              </div>
+            </div>
+
             <div className="filter-bar">
               <div style={{ position: 'relative', flex: '1 1 240px' }}>
                 <Search
@@ -519,7 +728,7 @@ export const AdminDashboard: React.FC = () => {
                   type="text"
                   className="form-input"
                   style={{ paddingLeft: '2.2rem' }}
-                  placeholder="Search faculty by name or email..."
+                  placeholder="Search faculty by name, initials, or course code..."
                   value={facultySearchQuery}
                   onChange={(e) => setFacultySearchQuery(e.target.value)}
                 />
@@ -536,8 +745,9 @@ export const AdminDashboard: React.FC = () => {
                   <thead>
                     <tr>
                       <th>Faculty Member</th>
-                      <th>College Email</th>
+                      <th>Account Credentials</th>
                       <th>Department</th>
+                      <th>Assigned Course(s)</th>
                       <th>Assigned Class Sections</th>
                       <th>Status</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
@@ -549,15 +759,52 @@ export const AdminDashboard: React.FC = () => {
                       return (
                         <tr key={fac.uid}>
                           <td>
-                            <strong>{fac.name}</strong>
-                            {fac.isDemo && (
-                              <span className="badge badge-demo" style={{ marginLeft: '6px' }}>
-                                Demo
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                              <strong>{fac.name}</strong>
+                              {fac.initials && (
+                                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                  ({fac.initials})
+                                </span>
+                              )}
+                            </div>
+                            {fac.isFictionalDemo && (
+                              <span className="badge badge-demo" style={{ marginTop: '0.2rem', display: 'inline-block' }}>
+                                Fictional Demo
                               </span>
                             )}
                           </td>
-                          <td>{fac.email}</td>
+                          <td>
+                            {fac.email ? (
+                              <span>{fac.email}</span>
+                            ) : (
+                              <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                                Demo Profile (No credentials assigned)
+                              </span>
+                            )}
+                          </td>
                           <td>{fac.department}</td>
+                          <td>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                              {fac.courseCodes?.map((code) => (
+                                <span
+                                  key={code}
+                                  style={{
+                                    backgroundColor: code === 'BAI505L' ? '#e0f2fe' : 'var(--color-bg-subtle)',
+                                    color: code === 'BAI505L' ? '#0369a1' : 'inherit',
+                                    border: code === 'BAI505L' ? '1px solid #bae6fd' : 'none',
+                                    padding: '0.15rem 0.45rem',
+                                    borderRadius: '4px',
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                  }}
+                                  title={code === 'BAI505L' ? 'Co-instructed with Dr. Dev Arin / Mrs. Nila Varen' : undefined}
+                                >
+                                  {code}
+                                  {code === 'BAI505L' ? ' (Lab)' : ''}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
                               {fac.assignedClasses?.map((cls, idx) => (

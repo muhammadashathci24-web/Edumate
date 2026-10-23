@@ -7,6 +7,7 @@ import {
   DEMO_ADMIN,
   DEMO_FACULTY,
   DEMO_STUDENTS,
+  DEMO_COURSES,
   INITIAL_SECTIONS_CONFIG,
   INITIAL_ASSIGNMENTS,
   INITIAL_ATTENDANCE,
@@ -27,6 +28,7 @@ const mockStore = {
   users: new Map(),
   students: new Map(), // key: normalized USN
   faculty: new Map(),
+  courses: new Map(), // key: course code (8 active courses)
   assignments: new Map(),
   attendance: new Map(),
   marks: new Map(),
@@ -38,10 +40,15 @@ function seedInMemoryStore() {
   // Admin
   mockStore.users.set(DEMO_ADMIN.uid, { ...DEMO_ADMIN });
 
-  // Faculty
+  // Faculty (8 Fictional Faculty Profiles)
   for (const f of DEMO_FACULTY) {
     mockStore.users.set(f.uid, { ...f });
     mockStore.faculty.set(f.uid, { ...f });
+  }
+
+  // Courses (8 Fictional Courses for AIML Year 3 Sections A, B, C)
+  for (const c of DEMO_COURSES) {
+    mockStore.courses.set(c.code, { ...c });
   }
 
   // 30 Fictional Students
@@ -65,7 +72,7 @@ function seedInMemoryStore() {
     mockStore.marks.set(m.id, { ...m });
   }
 
-  console.log(`[Seed] In-memory store seeded: 1 admin, ${DEMO_FACULTY.length} faculty, ${DEMO_STUDENTS.length} students (AIML Year 3 sections A, B, C)`);
+  console.log(`[Seed] In-memory store seeded: 1 admin, ${DEMO_FACULTY.length} faculty, ${DEMO_COURSES.length} courses, ${DEMO_STUDENTS.length} students (AIML Year 3 sections A, B, C)`);
 }
 
 // Seed on startup
@@ -141,16 +148,23 @@ app.post('/api/seed', async (req, res) => {
 
       // Seed Faculty
       for (const f of DEMO_FACULTY) {
-        try {
-          await auth.createUser({
-            uid: f.uid,
-            email: f.email,
-            password: DEMO_PASSWORD,
-            displayName: f.name,
-          });
-        } catch (e) {}
+        if (f.email) {
+          try {
+            await auth.createUser({
+              uid: f.uid,
+              email: f.email,
+              password: DEMO_PASSWORD,
+              displayName: f.name,
+            });
+          } catch (e) {}
+        }
         batch.set(db.collection('users').doc(f.uid), f);
         batch.set(db.collection('faculty').doc(f.uid), f);
+      }
+
+      // Seed 8 Fictional Courses (AIML Year 3 Sections A, B, C)
+      for (const c of DEMO_COURSES) {
+        batch.set(db.collection('courses').doc(c.code), c);
       }
 
       // Seed 30 Students
@@ -175,11 +189,11 @@ app.post('/api/seed', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Successfully seeded 30 fictional student records, demo faculty, and demo admin.',
+      message: 'Successfully seeded 30 fictional student records, 8 fictional courses, 8 demo faculty, and demo admin.',
+      courseCount: DEMO_COURSES.length,
+      facultyCount: DEMO_FACULTY.length,
       credentials: {
         admin: { email: DEMO_ADMIN.email, password: DEMO_PASSWORD },
-        facultyAiml1: { email: DEMO_FACULTY[0].email, password: DEMO_PASSWORD },
-        facultyAiml2: { email: DEMO_FACULTY[1].email, password: DEMO_PASSWORD },
         sampleStudent: { email: DEMO_STUDENTS[0].email, usn: DEMO_STUDENTS[0].usn, password: DEMO_PASSWORD },
       },
     });
@@ -203,6 +217,28 @@ app.get('/api/sections-config', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Courses Catalog Endpoint
+app.get('/api/courses', (req, res) => {
+  const { department, year, section } = req.query;
+  if (isMock) {
+    let list = Array.from(mockStore.courses.values());
+    if (department) list = list.filter(c => c.department === department);
+    if (year) list = list.filter(c => c.year === Number(year));
+    if (section) list = list.filter(c => c.sections && c.sections.includes(section));
+    return res.json(list);
+  }
+  let query = db.collection('courses');
+  if (department) query = query.where('department', '==', department);
+  if (year) query = query.where('year', '==', Number(year));
+  query.get()
+    .then(snapshot => {
+      let list = snapshot.docs.map(d => d.data());
+      if (section) list = list.filter(c => c.sections && c.sections.includes(section));
+      res.json(list);
+    })
+    .catch(err => res.status(500).json({ error: err.message }));
 });
 
 // Config: Update Sections (Admin only)
@@ -881,6 +917,11 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
       a => a.department === student.department && a.year === student.year && a.section === student.section
     );
 
+    // Get courses for student's class
+    const courses = Array.from(mockStore.courses.values()).filter(
+      c => c.department === student.department && c.year === student.year && c.sections.includes(student.section)
+    );
+
     // Get attendance for student's class
     const attendance = Array.from(mockStore.attendance.values())
       .filter(a => a.department === student.department && a.year === student.year && a.section === student.section)
@@ -903,6 +944,7 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
 
     return res.json({
       student,
+      courses,
       assignments,
       attendance,
       marks,
@@ -923,6 +965,14 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
         .where('section', '==', student.section)
         .get();
       const assignments = asgSnapshot.docs.map(d => d.data());
+
+      const courseSnapshot = await db.collection('courses')
+        .where('department', '==', student.department)
+        .where('year', '==', student.year)
+        .get();
+      const courses = courseSnapshot.docs
+        .map(d => d.data())
+        .filter(c => c.sections && c.sections.includes(student.section));
 
       const attSnapshot = await db.collection('attendance')
         .where('department', '==', student.department)
@@ -954,7 +1004,7 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
         };
       });
 
-      res.json({ student, assignments, attendance, marks });
+      res.json({ student, courses, assignments, attendance, marks });
     })
     .catch(err => res.status(500).json({ error: err.message }));
 });
