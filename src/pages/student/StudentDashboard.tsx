@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { EmptyState } from './EmptyState';
 import { Alert } from '../../components/Alert';
-import { Assignment } from '../../lib/types';
-import { User, BookOpen, CalendarCheck, Award, Mail, Phone, ShieldAlert } from 'lucide-react';
+import { Assignment, Course } from '../../lib/types';
+import { User, BookOpen, CalendarCheck, Award, Mail, Phone, ShieldAlert, GraduationCap, AlertTriangle } from 'lucide-react';
 
 interface AttendanceItem {
   id: string;
@@ -21,7 +21,8 @@ interface MarkItem {
 
 export const StudentDashboard: React.FC = () => {
   const { profile } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'assignments' | 'attendance' | 'marks'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'courses' | 'assignments' | 'attendance' | 'marks'>('overview');
+  const [courses, setCourses] = useState<Course[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceItem[]>([]);
   const [marks, setMarks] = useState<MarkItem[]>([]);
@@ -43,6 +44,7 @@ export const StudentDashboard: React.FC = () => {
           throw new Error('Could not load student academic data.');
         }
         const data = await res.json();
+        setCourses(data.courses || []);
         setAssignments(data.assignments || []);
         setAttendance(data.attendance || []);
         setMarks(data.marks || []);
@@ -99,6 +101,15 @@ export const StudentDashboard: React.FC = () => {
           onClick={() => setActiveTab('overview')}
         >
           Profile Overview
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'courses' ? 'active' : ''}`}
+          onClick={() => setActiveTab('courses')}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            <GraduationCap size={16} /> Enrolled Courses ({courses.length})
+          </span>
         </button>
         <button
           type="button"
@@ -226,22 +237,34 @@ export const StudentDashboard: React.FC = () => {
           </div>
 
           {/* Key Metric Highlights */}
-          <div className="grid-3">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center', padding: '1.5rem' }}>
-                <CalendarCheck size={28} style={{ color: 'var(--color-secondary)', margin: '0 auto 0.5rem auto' }} />
+              <div className="card-body" style={{ textAlign: 'center', padding: '1.25rem' }}>
+                <GraduationCap size={26} style={{ color: 'var(--color-primary)', margin: '0 auto 0.4rem auto' }} />
                 <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text-main)' }}>
-                  {attendancePercentage !== null ? `${attendancePercentage}%` : 'N/A'}
+                  {courses.length}
                 </div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
-                  Overall Attendance Rate
+                  Enrolled Courses
                 </div>
               </div>
             </div>
 
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center', padding: '1.5rem' }}>
-                <BookOpen size={28} style={{ color: 'var(--color-primary)', margin: '0 auto 0.5rem auto' }} />
+              <div className="card-body" style={{ textAlign: 'center', padding: '1.25rem' }}>
+                <CalendarCheck size={26} style={{ color: 'var(--color-secondary)', margin: '0 auto 0.4rem auto' }} />
+                <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text-main)' }}>
+                  {attendancePercentage !== null ? `${attendancePercentage}%` : 'N/A'}
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+                  Attendance Rate
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-body" style={{ textAlign: 'center', padding: '1.25rem' }}>
+                <BookOpen size={26} style={{ color: '#0284c7', margin: '0 auto 0.4rem auto' }} />
                 <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text-main)' }}>
                   {assignments.length}
                 </div>
@@ -252,16 +275,143 @@ export const StudentDashboard: React.FC = () => {
             </div>
 
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center', padding: '1.5rem' }}>
-                <Award size={28} style={{ color: '#d97706', margin: '0 auto 0.5rem auto' }} />
+              <div className="card-body" style={{ textAlign: 'center', padding: '1.25rem' }}>
+                <Award size={26} style={{ color: '#d97706', margin: '0 auto 0.4rem auto' }} />
                 <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text-main)' }}>
                   {marks.length}
                 </div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
-                  Assessments Evaluated
+                  Evaluated Marks
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Enrolled Courses */}
+      {activeTab === 'courses' && (
+        <div className="card">
+          <div className="card-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <GraduationCap size={20} style={{ color: 'var(--color-primary)' }} />
+              <div>
+                <h2 className="card-title">
+                  My Enrolled Courses ({profile?.department} &bull; Year {profile?.year} Section {profile?.section})
+                </h2>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
+                  Official semester courses registered for your section.
+                </p>
+              </div>
+            </div>
+            <span className="badge badge-demo">8 Courses</span>
+          </div>
+
+          <div className="card-body">
+            {/* Disclaimer notice */}
+            <div
+              style={{
+                marginBottom: '1.25rem',
+                padding: '0.85rem 1rem',
+                backgroundColor: '#fef3c7',
+                border: '1px solid #fde68a',
+                borderRadius: 'var(--radius-sm)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.65rem',
+                fontSize: '0.82rem',
+                color: '#92400e',
+              }}
+            >
+              <AlertTriangle size={18} style={{ color: '#d97706', flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <strong>Demo Notice:</strong> Faculty names and instructor assignments below are fictional demo data for demonstration purposes only. Machine Learning Laboratory (<code>BAI505L</code>) is co-instructed by Dr. Dev Arin and Mrs. Nila Varen.
+              </div>
+            </div>
+
+            {courses.length === 0 ? (
+              <EmptyState
+                icon={<BookOpen size={40} />}
+                title="No Courses Enrolled"
+                description="No active course catalog entries found for your department and year."
+              />
+            ) : (
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '130px' }}>Course Code</th>
+                      <th>Course Title</th>
+                      <th>Type / Credits</th>
+                      <th>Course Instructor(s)</th>
+                      <th style={{ textAlign: 'right' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {courses.map((course) => {
+                      const isMulti = Boolean(course.facultyNames && course.facultyNames.length > 1);
+                      return (
+                        <tr key={course.code}>
+                          <td>
+                            <span className="usn-badge" style={{ fontWeight: 700 }}>
+                              {course.code}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
+                              {course.title}
+                            </div>
+                            {course.isDemo && (
+                              <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                Fictional Demo Course
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 500 }}>
+                              {course.type}
+                            </div>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                              {course.credits} Credits
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              {course.facultyNames?.map((fn, idx) => (
+                                <div key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{fn}</span>
+                                  {isMulti && (
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        fontSize: '0.68rem',
+                                        backgroundColor: '#e0f2fe',
+                                        color: '#0369a1',
+                                        padding: '0.1rem 0.35rem',
+                                      }}
+                                    >
+                                      Co-Instructor {idx + 1}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                              {isMulti && (
+                                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                                  Single lab course shared between both instructors
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <span className="badge badge-active">Enrolled</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

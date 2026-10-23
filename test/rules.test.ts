@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { DEMO_COURSES, DEMO_FACULTY } from '../server/seedData.js';
 
 /**
  * EduMate Security Rules Verification Suite
@@ -231,6 +232,92 @@ describe('Firestore Security Rules Permissions Matrix', () => {
     it('allows admin to view assignments across all departments and sections', () => {
       expect(canReadAssignment(adminUser, sampleAssignmentAIML3A)).toBe(true);
       expect(canReadAssignment(adminUser, sampleAssignmentAIML3B)).toBe(true);
+    });
+  });
+
+  describe('6. Course Catalog & Fictional Faculty Directory Verification', () => {
+    it('confirms there are exactly eight active course records', () => {
+      expect(DEMO_COURSES).toHaveLength(8);
+    });
+
+    it('confirms there are no duplicate course codes', () => {
+      const courseCodes = DEMO_COURSES.map((c) => c.code);
+      const uniqueCodes = new Set(courseCodes);
+      expect(uniqueCodes.size).toBe(8);
+      expect(courseCodes).toEqual([
+        'BAI501G',
+        'BAI502G',
+        'BAI503T',
+        'BAI504T',
+        'BAI505L',
+        'BAI506E2',
+        'BBS508AK',
+        'BBS509TK',
+      ]);
+    });
+
+    it('confirms BAI505L is a single course record with two co-instructors linked', () => {
+      const bai505lRecords = DEMO_COURSES.filter((c) => c.code === 'BAI505L');
+      expect(bai505lRecords).toHaveLength(1);
+
+      const bai505l = bai505lRecords[0];
+      expect(bai505l.title).toBe('Machine Learning Laboratory');
+      expect(bai505l.facultyNames).toHaveLength(2);
+      expect(bai505l.facultyNames).toContain('Dr. Dev Arin (DA)');
+      expect(bai505l.facultyNames).toContain('Mrs. Nila Varen (NV)');
+      expect(bai505l.facultyIds).toContain('fac-demo-da');
+      expect(bai505l.facultyIds).toContain('fac-demo-nv');
+    });
+
+    it('confirms courses are strictly scoped to AIML Year 3 (Sections A, B, C)', () => {
+      DEMO_COURSES.forEach((course) => {
+        expect(course.department).toBe('AIML');
+        expect(course.year).toBe(3);
+        expect(course.sections).toEqual(['A', 'B', 'C']);
+      });
+    });
+
+    it('confirms there are exactly eight faculty profiles and no duplicates', () => {
+      expect(DEMO_FACULTY).toHaveLength(8);
+      const facultyIds = DEMO_FACULTY.map((f) => f.uid);
+      const uniqueFacultyIds = new Set(facultyIds);
+      expect(uniqueFacultyIds.size).toBe(8);
+
+      const facultyNames = DEMO_FACULTY.map((f) => f.name);
+      const uniqueNames = new Set(facultyNames);
+      expect(uniqueNames.size).toBe(8);
+    });
+
+    it('confirms each faculty profile is clearly marked as fictional demo data', () => {
+      DEMO_FACULTY.forEach((fac) => {
+        expect(fac.isDemo).toBe(true);
+        expect(fac.isFictionalDemo).toBe(true);
+      });
+    });
+
+    it('confirms no email addresses, phone numbers, or passwords were invented for fictional faculty', () => {
+      DEMO_FACULTY.forEach((fac) => {
+        expect(fac.email).toBeUndefined();
+        expect(fac.phone).toBeUndefined();
+        expect((fac as any).password).toBeUndefined();
+      });
+    });
+
+    it('confirms faculty profiles link correctly to their designated courses', () => {
+      const getFacultyCourses = (initials: string) => {
+        const fac = DEMO_FACULTY.find((f) => f.initials === initials);
+        return fac?.courseCodes || [];
+      };
+
+      expect(getFacultyCourses('AV')).toContain('BAI501G');
+      expect(getFacultyCourses('MS')).toContain('BAI502G');
+      expect(getFacultyCourses('TN')).toContain('BAI503T');
+      expect(getFacultyCourses('DA')).toContain('BAI504T');
+      expect(getFacultyCourses('DA')).toContain('BAI505L'); // Co-instructor for lab
+      expect(getFacultyCourses('NV')).toContain('BAI505L'); // Co-instructor for lab
+      expect(getFacultyCourses('KE')).toContain('BAI506E2');
+      expect(getFacultyCourses('SI')).toContain('BBS508AK');
+      expect(getFacultyCourses('RN')).toContain('BBS509TK');
     });
   });
 });

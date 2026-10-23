@@ -9,7 +9,6 @@ import { EditFacultyModal } from './EditFacultyModal';
 import { ManageSectionsModal } from './ManageSectionsModal';
 import {
   Users,
-  UserCheck,
   UserPlus,
   Search,
   Sliders,

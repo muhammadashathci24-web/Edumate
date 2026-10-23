@@ -36,7 +36,7 @@ export const EditFacultyModal: React.FC<EditFacultyModalProps> = ({
   useEffect(() => {
     if (faculty) {
       setName(faculty.name);
-      setEmail(faculty.email);
+      setEmail(faculty.email || '');
       setDepartment(faculty.department);
       setAssignedClasses(faculty.assignedClasses || []);
       setError(null);

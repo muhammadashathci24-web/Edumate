@@ -45,6 +45,8 @@ export interface Course {
   sections: string[];
   facultyIds: string[];
   facultyNames: string[];
+  type?: string;
+  credits?: number;
   isDemo?: boolean;
 }
 
@@ -53,11 +55,13 @@ export interface Faculty {
   name: string;
   initials?: string;
   email?: string;
+  phone?: string;
   department: string;
   assignedClasses: ClassSection[];
   courseCodes?: string[];
   status: UserStatus;
   isDemo?: boolean;
+  isFictionalDemo?: boolean;
   createdAt?: string;
 }
 
