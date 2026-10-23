@@ -487,7 +487,7 @@ app.post('/api/faculty', requireAdmin, async (req, res) => {
   if (isMock) {
     // Check if faculty with email already exists
     const existing = Array.from(mockStore.faculty.values()).find(
-      f => f.email.toLowerCase() === email.trim().toLowerCase()
+      f => f.email && f.email.toLowerCase() === email.trim().toLowerCase()
     );
     if (existing) {
       return res.status(409).json({ error: `Faculty account with email ${email} already exists.` });
@@ -666,7 +666,7 @@ app.get('/api/users/:identifier', async (req, res) => {
   if (isMock) {
     const user = mockStore.users.get(identifier) ||
       Array.from(mockStore.users.values()).find(
-        u => u.email.toLowerCase() === identifier.toLowerCase() || u.usn === identifier.toUpperCase()
+        u => (u.email && u.email.toLowerCase() === identifier.toLowerCase()) || (u.usn && u.usn === identifier.toUpperCase())
       );
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -699,7 +699,7 @@ app.post('/api/auth/sign-in', (req, res) => {
   }
 
   const user = Array.from(mockStore.users.values()).find(
-    u => u.email.toLowerCase() === email.trim().toLowerCase()
+    u => u.email && u.email.toLowerCase() === email.trim().toLowerCase()
   );
 
   if (!user) {
@@ -1015,7 +1015,7 @@ app.listen(PORT, () => {
   console.log(` EduMate Admin SDK Server running on port ${PORT}`);
   console.log(` Mode: ${isMock ? 'Local In-Memory Mock (Offline Demo Safe)' : 'Firebase Live / Emulator'}`);
   console.log(` Demo Admin: ${DEMO_ADMIN.email} (Password: ${DEMO_PASSWORD})`);
-  console.log(` Demo Faculty: ${DEMO_FACULTY[0].email} (Password: ${DEMO_PASSWORD})`);
+  console.log(` Demo Faculty: Fictional Demo Profiles (No login credentials assigned)`);
   console.log(` Demo Student: ${DEMO_STUDENTS[0].email} (Password: ${DEMO_PASSWORD})`);
   console.log(` Total Sample Students: ${DEMO_STUDENTS.length} (AIML 3-A, 3-B, 3-C)`);
   console.log(`====================================================`);

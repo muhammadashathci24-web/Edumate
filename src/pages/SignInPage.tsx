@@ -204,7 +204,7 @@ export const SignInPage: React.FC = () => {
             <HelpCircle size={15} />
             <span>Local Evaluation & Demo Accounts (Password: Demo@12345)</span>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -215,24 +215,13 @@ export const SignInPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => fillDemoAccount('faculty.aiml1@college.edu')}
-            >
-              Faculty (AIML 3-A & 3-B)
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => fillDemoAccount('faculty.aiml2@college.edu')}
-            >
-              Faculty (AIML 3-C)
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
               onClick={() => fillDemoAccount('aarav.demo@college.edu')}
             >
               Student (AIML 3-A)
             </button>
+            <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', fontStyle: 'italic', marginLeft: '4px' }}>
+              (Fictional demo faculty have no login credentials assigned)
+            </span>
           </div>
         </div>
       </div>
