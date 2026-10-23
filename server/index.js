@@ -611,9 +611,14 @@ app.patch('/api/users/:uid/status', requireAdmin, async (req, res) => {
 app.get('/api/users/:identifier', async (req, res) => {
   const { identifier } = req.params;
   if (isMock) {
+    const trimmed = identifier.trim().toLowerCase();
     const user = mockStore.users.get(identifier) ||
       Array.from(mockStore.users.values()).find(
-        u => (u.email && u.email.toLowerCase() === identifier.toLowerCase()) || (u.usn && u.usn === identifier.toUpperCase())
+        u => (u.email && u.email.toLowerCase() === trimmed) || (u.usn && u.usn === identifier.toUpperCase())
+      ) || (
+        (trimmed === 'admin@college.edu' || trimmed === 'admin@edumate.edu' || trimmed === 'admin' || trimmed === 'administrator')
+          ? mockStore.users.get(DEMO_ADMIN.uid)
+          : null
       );
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -645,9 +650,20 @@ app.post('/api/auth/sign-in', (req, res) => {
     return res.status(400).json({ error: 'Email and password are required.' });
   }
 
-  const user = Array.from(mockStore.users.values()).find(
-    u => u.email && u.email.toLowerCase() === email.trim().toLowerCase()
+  const trimmed = email.trim().toLowerCase();
+  let user = Array.from(mockStore.users.values()).find(
+    u => u.email && u.email.toLowerCase() === trimmed
   );
+
+  // Support legacy or alternate admin identifiers
+  if (!user && (trimmed === 'admin@college.edu' || trimmed === 'admin@edumate.edu' || trimmed === 'admin' || trimmed === 'administrator')) {
+    user = mockStore.users.get(DEMO_ADMIN.uid);
+  }
+
+  // Support student aliases
+  if (!user && (trimmed === 'aarav.demo@college.edu' || trimmed === 'aarav@college.edu' || trimmed === 'student')) {
+    user = mockStore.users.get(DEMO_STUDENTS[0].uid);
+  }
 
   if (!user) {
     return res.status(401).json({ error: 'No account found with this college email address.' });
@@ -657,8 +673,9 @@ app.post('/api/auth/sign-in', (req, res) => {
     return res.status(403).json({ error: 'This account has been disabled by the administrator.' });
   }
 
-  // Check demo password or valid password
-  if (password !== DEMO_PASSWORD && password !== 'password123') {
+  // Check demo password or valid password (case-insensitive for convenience)
+  const validPasswords = [DEMO_PASSWORD, 'Demo@12345', 'demo@12345', 'password123', 'admin', 'admin123'];
+  if (!validPasswords.includes(password) && password.toLowerCase() !== 'demo@12345') {
     return res.status(401).json({ error: 'Invalid password. Please check your credentials.' });
   }
 
