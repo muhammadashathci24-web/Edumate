@@ -2,8 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { EmptyState } from './EmptyState';
 import { Alert } from '../../components/Alert';
-import { Assignment, Course } from '../../lib/types';
-import { User, BookOpen, CalendarCheck, Award, Mail, Phone, ShieldAlert, GraduationCap } from 'lucide-react';
+import { Assignment, Course, StudentInterests } from '../../lib/types';
+import {
+  User,
+  BookOpen,
+  CalendarCheck,
+  Award,
+  Mail,
+  Phone,
+  ShieldAlert,
+  GraduationCap,
+  Sparkles,
+  MapPin,
+  Compass,
+  Edit2,
+} from 'lucide-react';
+import { InterestsQuestionnaireModal } from '../../components/InterestsQuestionnaireModal';
 
 interface AttendanceItem {
   id: string;
@@ -20,12 +34,14 @@ interface MarkItem {
 }
 
 export const StudentDashboard: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'courses' | 'assignments' | 'attendance' | 'marks'>('overview');
   const [courses, setCourses] = useState<Course[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceItem[]>([]);
   const [marks, setMarks] = useState<MarkItem[]>([]);
+  const [studentInterests, setStudentInterests] = useState<StudentInterests | null>(profile?.interests || null);
+  const [isInterestsModalOpen, setIsInterestsModalOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +64,9 @@ export const StudentDashboard: React.FC = () => {
         setAssignments(data.assignments || []);
         setAttendance(data.attendance || []);
         setMarks(data.marks || []);
+        if (data.student?.interests) {
+          setStudentInterests(data.student.interests);
+        }
       } catch (err: any) {
         console.error('Student data fetch error:', err);
         setError(err.message || 'Failed to load records.');
@@ -58,6 +77,23 @@ export const StudentDashboard: React.FC = () => {
 
     loadStudentData();
   }, [profile?.usn]);
+
+  const handleSaveInterests = async (newInterests: StudentInterests) => {
+    if (!profile?.usn) return;
+    const res = await fetch(`/api/student/interests/${encodeURIComponent(profile.usn)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interests: newInterests }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update student interests');
+    }
+    setStudentInterests(newInterests);
+    if (refreshProfile) {
+      await refreshProfile();
+    }
+  };
 
   // Attendance statistics calculation
   const recordedAttendance = attendance.filter((a) => a.status === 'present' || a.status === 'absent');
@@ -230,6 +266,135 @@ export const StudentDashboard: React.FC = () => {
                   Students cannot modify these records.
                 </span>
               </div>
+            </div>
+          </div>
+
+          {/* Interests & Opportunities Preferences Card */}
+          <div className="card">
+            <div className="card-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Sparkles size={20} style={{ color: 'var(--color-primary)' }} />
+                <div>
+                  <h2 className="card-title">My Interests & Opportunities Preferences</h2>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                    Topics used to personalize your recommendations for events, competitions, workshops, and scholarships.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setIsInterestsModalOpen(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem' }}
+              >
+                <Edit2 size={14} />
+                {studentInterests && (studentInterests.categories?.length > 0 || studentInterests.subcategories?.length > 0) ? 'Edit Interests' : 'Set Interests'}
+              </button>
+            </div>
+            <div className="card-body">
+              {studentInterests && (studentInterests.categories?.length > 0 || studentInterests.subcategories?.length > 0 || (studentInterests.customInterests && studentInterests.customInterests.length > 0)) ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Categories */}
+                  {studentInterests.categories?.length > 0 && (
+                    <div>
+                      <span className="form-label" style={{ display: 'block', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
+                        Interest Areas
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {studentInterests.categories.map((cat) => (
+                          <span
+                            key={cat}
+                            className="badge badge-student"
+                            style={{ fontSize: '0.825rem', padding: '0.3rem 0.65rem' }}
+                          >
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subcategories */}
+                  {studentInterests.subcategories?.length > 0 && (
+                    <div>
+                      <span className="form-label" style={{ display: 'block', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
+                        Topics & Subcategories
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {studentInterests.subcategories.map((sub) => (
+                          <span
+                            key={sub}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '0.25rem 0.6rem',
+                              borderRadius: '9999px',
+                              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                              color: '#047857',
+                              fontSize: '0.8rem',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {sub}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom Interests */}
+                  {studentInterests.customInterests && studentInterests.customInterests.length > 0 && (
+                    <div>
+                      <span className="form-label" style={{ display: 'block', color: 'var(--color-text-muted)', marginBottom: '0.35rem' }}>
+                        Specialized Interests
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {studentInterests.customInterests.map((item) => (
+                          <span
+                            key={item}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '0.25rem 0.6rem',
+                              borderRadius: '9999px',
+                              backgroundColor: 'rgba(79, 70, 229, 0.08)',
+                              color: 'var(--color-primary)',
+                              fontSize: '0.8rem',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Location Preference */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                    <MapPin size={15} style={{ color: 'var(--color-info)' }} />
+                    <span>Preferred Area / City: <strong>{studentInterests.preferredCity || 'Bengaluru'}</strong></span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '1.5rem 1rem' }}>
+                  <Compass size={32} style={{ color: 'var(--color-primary)', opacity: 0.6, margin: '0 auto 0.5rem auto' }} />
+                  <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem' }}>
+                    No interests selected yet
+                  </p>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', maxWidth: '480px', margin: '0 auto 1rem auto' }}>
+                    Choose your interests in coding, sports, arts, workshops, or entrepreneurship to unlock tailored recommendations for upcoming opportunities and scholarships.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setIsInterestsModalOpen(true)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                  >
+                    <Sparkles size={16} /> Select Interests
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -607,6 +772,17 @@ export const StudentDashboard: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+
+      {/* Interests Questionnaire Modal */}
+      {profile?.usn && (
+        <InterestsQuestionnaireModal
+          isOpen={isInterestsModalOpen}
+          onClose={() => setIsInterestsModalOpen(false)}
+          currentInterests={studentInterests}
+          onSave={handleSaveInterests}
+          usn={profile.usn}
+        />
       )}
     </div>
   );

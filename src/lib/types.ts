@@ -7,6 +7,15 @@ export interface ClassSection {
   section: string;
 }
 
+export interface StudentInterests {
+  categories: string[];
+  subcategories: string[];
+  customInterests?: string[];
+  preferredCity?: string;
+  preferredArea?: string;
+  updatedAt?: string;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -19,6 +28,7 @@ export interface UserProfile {
   usn?: string;
   phone?: string;
   assignedClasses?: ClassSection[];
+  interests?: StudentInterests;
   isDemo?: boolean;
   createdAt?: string;
 }
@@ -33,6 +43,7 @@ export interface Student {
   year: number;
   section: string;
   status: UserStatus;
+  interests?: StudentInterests;
   isDemo?: boolean;
   createdAt?: string;
 }
@@ -106,4 +117,51 @@ export interface SectionsConfig {
   departments: string[];
   years: number[];
   sectionsByDeptYear: Record<string, string[]>; // e.g. "AIML-3": ["A", "B", "C"]
+}
+
+export type OpportunityCategory =
+  | 'Sports'
+  | 'Coding and technology'
+  | 'Cultural and arts activities'
+  | 'Academic competitions and workshops'
+  | 'Entrepreneurship and social impact'
+  | 'Scholarships'
+  | 'Other';
+
+export interface Opportunity {
+  id: string;
+  title: string;
+  category: OpportunityCategory;
+  description: string;
+  interestTags: string[];
+  subcategoryTags: string[];
+  venue: string;
+  city: string;
+  area?: string;
+  eventDate: string; // ISO string or YYYY-MM-DD
+  registrationDeadline: string; // ISO string or YYYY-MM-DD
+  registrationLink?: string;
+  eligibleDepartments?: string[]; // e.g. ['ALL'] or ['AIML', 'CSE']
+  eligibleYears?: number[]; // e.g. [1, 2, 3, 4]
+  eligibleSections?: string[]; // e.g. ['ALL'] or ['A', 'B']
+  scholarshipDetails?: {
+    awardAmount?: string;
+    minimumMarksPercentage?: number;
+    criteriaNotes?: string;
+  };
+  isActive: boolean;
+  createdByAdminId?: string;
+  createdAt: string;
+  updatedAt?: string;
+  isSampleData?: boolean;
+}
+
+export interface RecommendationMatch {
+  opportunity: Opportunity;
+  score: number;
+  matchReasons: string[];
+  matchedInterests: string[];
+  isLocationMatch: boolean;
+  isEligible: boolean;
+  daysRemaining: number;
 }

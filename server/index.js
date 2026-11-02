@@ -864,6 +864,73 @@ app.post('/api/marks', (req, res) => {
   db.collection('marks').doc(id).set(markDoc)
     .then(() => res.status(201).json({ success: true, mark: markDoc }))
     .catch(err => res.status(500).json({ error: err.message }));
+// Student Interests: Get
+app.get('/api/student/interests/:usn', async (req, res) => {
+  const normalizedUSN = req.params.usn.trim().toUpperCase();
+  if (isMock) {
+    const student = mockStore.students.get(normalizedUSN);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+    return res.json(student.interests || null);
+  }
+  try {
+    const doc = await db.collection('students').doc(normalizedUSN).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Student not found' });
+    res.json(doc.data().interests || null);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Student Interests: Update
+app.put('/api/student/interests/:usn', async (req, res) => {
+  const normalizedUSN = req.params.usn.trim().toUpperCase();
+  const { interests } = req.body;
+
+  if (!interests || typeof interests !== 'object') {
+    return res.status(400).json({ error: 'Interests payload must be an object.' });
+  }
+
+  const sanitizedInterests = {
+    categories: Array.isArray(interests.categories) ? interests.categories : [],
+    subcategories: Array.isArray(interests.subcategories) ? interests.subcategories : [],
+    customInterests: Array.isArray(interests.customInterests)
+      ? interests.customInterests.filter(Boolean)
+      : [],
+    preferredCity: typeof interests.preferredCity === 'string' ? interests.preferredCity.trim() : '',
+    preferredArea: typeof interests.preferredArea === 'string' ? interests.preferredArea.trim() : '',
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (isMock) {
+    const student = mockStore.students.get(normalizedUSN);
+    if (!student) {
+      return res.status(404).json({ error: 'Student record not found.' });
+    }
+    student.interests = sanitizedInterests;
+    mockStore.students.set(normalizedUSN, student);
+    if (student.uid && mockStore.users.has(student.uid)) {
+      const user = mockStore.users.get(student.uid);
+      user.interests = sanitizedInterests;
+      mockStore.users.set(student.uid, user);
+    }
+    return res.json({ success: true, interests: sanitizedInterests, student });
+  }
+
+  try {
+    const studentRef = db.collection('students').doc(normalizedUSN);
+    const doc = await studentRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Student record not found.' });
+    }
+    const student = doc.data();
+    await studentRef.update({ interests: sanitizedInterests });
+    if (student.uid) {
+      await db.collection('users').doc(student.uid).update({ interests: sanitizedInterests });
+    }
+    res.json({ success: true, interests: sanitizedInterests, student: { ...student, interests: sanitizedInterests } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Student Dashboard Data
