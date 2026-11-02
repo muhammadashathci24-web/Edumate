@@ -1068,6 +1068,8 @@ app.post('/api/marks', (req, res) => {
   db.collection('marks').doc(id).set(markDoc)
     .then(() => res.status(201).json({ success: true, mark: markDoc }))
     .catch(err => res.status(500).json({ error: err.message }));
+});
+
 // Student Interests: Get
 app.get('/api/student/interests/:usn', async (req, res) => {
   const normalizedUSN = req.params.usn.trim().toUpperCase();
