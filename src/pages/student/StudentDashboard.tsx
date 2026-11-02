@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { EmptyState } from './EmptyState';
 import { Alert } from '../../components/Alert';
 import { Assignment, Course, StudentInterests, Opportunity } from '../../lib/types';
+import { matchOpportunities } from '../../lib/recommendations';
 import {
   User,
   BookOpen,
@@ -117,6 +118,24 @@ export const StudentDashboard: React.FC = () => {
   const totalMax = evaluatedMarks.reduce((sum, m) => sum + m.maxMarks, 0);
   const averageMarksPercentage = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : null;
 
+  // Matched recommendations count using TF-IDF strict gate
+  const matchedCount = useMemo(() => {
+    if (!profile) return 0;
+    const studentObj = {
+      usn: profile.usn || '',
+      uid: profile.uid,
+      name: profile.name,
+      email: profile.email,
+      department: profile.department || '',
+      year: profile.year || 3,
+      section: profile.section || '',
+      status: profile.status,
+      interests: studentInterests || undefined,
+    };
+    const matches = matchOpportunities(studentObj, studentInterests, opportunities, averageMarksPercentage);
+    return matches.length;
+  }, [profile, studentInterests, opportunities, averageMarksPercentage]);
+
   if (loading) {
     return (
       <div className="main-content" style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--color-text-muted)' }}>
@@ -156,7 +175,7 @@ export const StudentDashboard: React.FC = () => {
           onClick={() => setActiveTab('recommendations')}
         >
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Sparkles size={16} /> Recommended Opportunities ({opportunities.length})
+            <Sparkles size={16} /> Recommended for You ({matchedCount})
           </span>
         </button>
         <button
@@ -407,7 +426,7 @@ export const StudentDashboard: React.FC = () => {
                       onClick={() => setActiveTab('recommendations')}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
                     >
-                      <Sparkles size={14} /> View Recommendations <ArrowRight size={14} />
+                      <Sparkles size={14} /> View Recommendations ({matchedCount}) <ArrowRight size={14} />
                     </button>
                   </div>
                 </div>

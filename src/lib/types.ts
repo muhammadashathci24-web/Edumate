@@ -159,8 +159,12 @@ export interface Opportunity {
 export interface RecommendationMatch {
   opportunity: Opportunity;
   score: number;
+  similarityScore: number;
   matchReasons: string[];
   matchedInterests: string[];
+  eligibilityDetail?: string;
+  scholarshipEligibilityDetail?: string;
+  locationDetail?: string;
   isLocationMatch: boolean;
   isEligible: boolean;
   daysRemaining: number;

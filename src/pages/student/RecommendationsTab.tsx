@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Opportunity, Student, StudentInterests, RecommendationMatch } from '../../lib/types';
-import { matchOpportunities } from '../../lib/recommendations';
+import { matchOpportunities, isOpportunityExpired, getDaysRemaining } from '../../lib/recommendations';
 import {
   Sparkles,
   MapPin,
@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Compass,
   SlidersHorizontal,
+  GraduationCap,
 } from 'lucide-react';
 
 interface RecommendationsTabProps {
@@ -29,17 +30,33 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
   averageMarksPercentage,
   onOpenInterestsModal,
 }) => {
+  // Navigation view: 'RECOMMENDED' (default) or 'EXPLORE_ALL'
+  const [activeView, setActiveView] = useState<'RECOMMENDED' | 'EXPLORE_ALL'>('RECOMMENDED');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Calculate matches using the content-based recommendation engine
-  const matches: RecommendationMatch[] = useMemo(() => {
+  // 1. Calculate TF-IDF & Cosine Similarity matches using the strict interest gate
+  const matchedRecommendations: RecommendationMatch[] = useMemo(() => {
     return matchOpportunities(student, interests, opportunities, averageMarksPercentage);
   }, [student, interests, opportunities, averageMarksPercentage]);
 
-  // Filter by category and search query
-  const filteredMatches = useMemo(() => {
-    return matches.filter((match) => {
+  // Map of matched opportunity IDs for quick lookup in Explore All view
+  const matchedOppIdMap = useMemo(() => {
+    const map = new Map<string, RecommendationMatch>();
+    for (const match of matchedRecommendations) {
+      map.set(match.opportunity.id, match);
+    }
+    return map;
+  }, [matchedRecommendations]);
+
+  // 2. Active opportunities for "Explore All" (non-expired and active)
+  const activeOpportunities = useMemo(() => {
+    return opportunities.filter((o) => o.isActive && !isOpportunityExpired(o));
+  }, [opportunities]);
+
+  // 3. Filter Recommended for You feed
+  const filteredRecommendations = useMemo(() => {
+    return matchedRecommendations.filter((match) => {
       const opp = match.opportunity;
       if (selectedCategory !== 'ALL' && opp.category !== selectedCategory) {
         return false;
@@ -56,7 +73,26 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
       }
       return true;
     });
-  }, [matches, selectedCategory, searchQuery]);
+  }, [matchedRecommendations, selectedCategory, searchQuery]);
+
+  // 4. Filter Explore All catalog
+  const filteredExploreAll = useMemo(() => {
+    return activeOpportunities.filter((opp) => {
+      if (selectedCategory !== 'ALL' && opp.category !== selectedCategory) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchesQuery =
+          opp.title.toLowerCase().includes(q) ||
+          opp.description.toLowerCase().includes(q) ||
+          opp.city.toLowerCase().includes(q) ||
+          (opp.subcategoryTags || []).some((t) => t.toLowerCase().includes(q));
+        if (!matchesQuery) return false;
+      }
+      return true;
+    });
+  }, [activeOpportunities, selectedCategory, searchQuery]);
 
   const hasInterests = Boolean(
     interests &&
@@ -66,7 +102,7 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
   );
 
   const categories = [
-    { id: 'ALL', label: 'All Opportunities' },
+    { id: 'ALL', label: activeView === 'RECOMMENDED' ? `All Matched (${matchedRecommendations.length})` : `All Events (${activeOpportunities.length})` },
     { id: 'Coding and technology', label: 'Coding & Tech' },
     { id: 'Sports', label: 'Sports' },
     { id: 'Cultural and arts activities', label: 'Cultural & Arts' },
@@ -112,7 +148,15 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
                 </h2>
               </div>
               <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.3rem', margin: 0 }}>
-                Matched to your interests in {interests?.categories?.length ? interests.categories.join(', ') : 'campus activities'} &bull; Preferred area: <strong>{interests?.preferredCity || 'Bengaluru'}</strong>
+                {hasInterests ? (
+                  <>
+                    Recommendations matched strictly to your saved interests in{' '}
+                    <strong>{interests?.categories?.join(', ') || 'selected topics'}</strong> &bull; Preferred area:{' '}
+                    <strong>{interests?.preferredCity || 'Bengaluru'}</strong>
+                  </>
+                ) : (
+                  'No saved interests yet. Select your interests to receive personalized recommendations.'
+                )}
               </p>
             </div>
 
@@ -123,7 +167,7 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}
             >
               <SlidersHorizontal size={15} />
-              {hasInterests ? 'Refine My Interests' : 'Set My Interests'}
+              {hasInterests ? 'Update Interests' : 'Choose Interests'}
             </button>
           </div>
 
@@ -145,7 +189,7 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
               }}
             >
               <span>
-                💡 <strong>Tip:</strong> Select your interests to get higher-accuracy recommendations for hackathons, sports, workshops, and scholarships.
+                💡 <strong>Notice:</strong> Your <em>Recommended for You</em> feed shows only items matching your explicitly saved interests. Choose interests below to see your recommendations.
               </span>
               <button
                 type="button"
@@ -157,6 +201,69 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Navigation View Switcher: Recommended for You vs Explore All */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          borderBottom: '2px solid var(--color-border)',
+          paddingBottom: '0.25rem',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setActiveView('RECOMMENDED');
+            setSelectedCategory('ALL');
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            padding: '0.6rem 1.25rem',
+            border: 'none',
+            borderBottom: activeView === 'RECOMMENDED' ? '3px solid var(--color-primary)' : '3px solid transparent',
+            backgroundColor: 'transparent',
+            color: activeView === 'RECOMMENDED' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+            fontWeight: activeView === 'RECOMMENDED' ? 700 : 500,
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            marginBottom: '-2px',
+          }}
+        >
+          <Sparkles size={17} />
+          <span>Recommended for You ({matchedRecommendations.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveView('EXPLORE_ALL');
+            setSelectedCategory('ALL');
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            padding: '0.6rem 1.25rem',
+            border: 'none',
+            borderBottom: activeView === 'EXPLORE_ALL' ? '3px solid var(--color-primary)' : '3px solid transparent',
+            backgroundColor: 'transparent',
+            color: activeView === 'EXPLORE_ALL' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+            fontWeight: activeView === 'EXPLORE_ALL' ? 700 : 500,
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            marginBottom: '-2px',
+          }}
+        >
+          <Compass size={17} />
+          <span>Explore All ({activeOpportunities.length})</span>
+        </button>
       </div>
 
       {/* Filter and Search Bar */}
@@ -182,7 +289,11 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
             <input
               type="text"
               className="form-control"
-              placeholder="Search recommended events, topics, or cities..."
+              placeholder={
+                activeView === 'RECOMMENDED'
+                  ? 'Search within your recommended opportunities...'
+                  : 'Search all active campus opportunities, topics, or venues...'
+              }
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{ paddingLeft: '2.25rem' }}
@@ -218,242 +329,520 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
         </div>
       </div>
 
-      {/* Recommendations List */}
-      {filteredMatches.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
-          <Compass size={36} style={{ color: 'var(--color-primary)', opacity: 0.6, margin: '0 auto 0.75rem auto' }} />
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.4rem' }}>
-            No matching opportunities found
-          </h3>
-          <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', maxWidth: '460px', margin: '0 auto 1.25rem auto' }}>
-            {searchQuery
-              ? `No upcoming opportunities match "${searchQuery}". Try clearing your search filter.`
-              : 'Try selecting additional interest topics or broadening your location preference to discover more events.'}
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-            {searchQuery && (
-              <button type="button" className="btn btn-outline" onClick={() => setSearchQuery('')}>
-                Clear Search
-              </button>
-            )}
-            <button type="button" className="btn btn-primary" onClick={onOpenInterestsModal}>
-              Update My Interests
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
-          {filteredMatches.map(({ opportunity: opp, score, matchReasons, daysRemaining }) => {
-            const isClosingSoon = daysRemaining >= 0 && daysRemaining <= 7;
-            const eventFormattedDate = opp.eventDate
-              ? new Date(opp.eventDate).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })
-              : 'TBD';
-            const deadlineFormattedDate = opp.registrationDeadline
-              ? new Date(opp.registrationDeadline).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })
-              : 'Open';
+      {/* ============================================================== */}
+      {/* VIEW 1: RECOMMENDED FOR YOU (Matches Only)                    */}
+      {/* ============================================================== */}
+      {activeView === 'RECOMMENDED' && (
+        <>
+          {filteredRecommendations.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+              <Compass size={36} style={{ color: 'var(--color-primary)', opacity: 0.6, margin: '0 auto 0.75rem auto' }} />
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+                {!hasInterests
+                  ? 'No interests selected yet'
+                  : searchQuery
+                  ? `No recommended opportunities match "${searchQuery}"`
+                  : selectedCategory !== 'ALL'
+                  ? `No recommended opportunities found in ${selectedCategory}`
+                  : 'No matching opportunities found for your saved interests'}
+              </h3>
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', maxWidth: '480px', margin: '0 auto 1.25rem auto' }}>
+                {!hasInterests
+                  ? 'Your Recommended for You feed is currently empty because you have not selected any interests yet. Choose your preferred categories and subcategories to receive personalized event recommendations.'
+                  : searchQuery
+                  ? 'Try searching with different terms or clear the search filter to view your other recommendations.'
+                  : selectedCategory !== 'ALL'
+                  ? `None of your current interest matches belong to ${selectedCategory}. You can select "All Matched" to see all your recommendations or browse the Explore All tab.`
+                  : 'None of the active opportunities in the catalog match your currently saved interests. You can update your interest profile or browse all available events in the Explore All tab.'}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {searchQuery && (
+                  <button type="button" className="btn btn-outline" onClick={() => setSearchQuery('')}>
+                    Clear Search
+                  </button>
+                )}
+                {selectedCategory !== 'ALL' && (
+                  <button type="button" className="btn btn-outline" onClick={() => setSelectedCategory('ALL')}>
+                    View All Matched ({matchedRecommendations.length})
+                  </button>
+                )}
+                <button type="button" className="btn btn-primary" onClick={onOpenInterestsModal}>
+                  {hasInterests ? 'Update My Interests' : 'Choose Interests'}
+                </button>
+                {hasInterests && (
+                  <button type="button" className="btn btn-outline" onClick={() => setActiveView('EXPLORE_ALL')}>
+                    Browse Explore All ({activeOpportunities.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+              {filteredRecommendations.map(({ opportunity: opp, score, similarityScore, matchReasons, eligibilityDetail, scholarshipEligibilityDetail, locationDetail, daysRemaining }) => {
+                const isClosingSoon = daysRemaining >= 0 && daysRemaining <= 7;
+                const eventFormattedDate = opp.eventDate
+                  ? new Date(opp.eventDate).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  : 'TBD';
+                const deadlineFormattedDate = opp.registrationDeadline
+                  ? new Date(opp.registrationDeadline).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  : 'Open';
 
-            return (
-              <div
-                key={opp.id}
-                className="card"
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  borderTop: score > 20 ? '3px solid var(--color-primary)' : '1px solid var(--color-border)',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                }}
-              >
-                <div className="card-body" style={{ padding: '1.25rem' }}>
-                  {/* Category & Status Bar */}
+                return (
                   <div
+                    key={opp.id}
+                    className="card"
                     style={{
                       display: 'flex',
-                      alignItems: 'center',
+                      flexDirection: 'column',
                       justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      gap: '0.4rem',
-                      marginBottom: '0.75rem',
+                      borderTop: '3px solid var(--color-primary)',
+                      boxShadow: 'var(--shadow-sm)',
                     }}
                   >
-                    <span className={`badge ${getCategoryBadgeClass(opp.category)}`}>
-                      {opp.category}
-                    </span>
-
-                    {daysRemaining >= 0 && (
-                      <span
+                    <div className="card-body" style={{ padding: '1.25rem' }}>
+                      {/* Category & Status Bar */}
+                      <div
                         style={{
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          padding: '0.2rem 0.5rem',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: isClosingSoon ? '#fee2e2' : 'var(--color-bg-subtle)',
-                          color: isClosingSoon ? '#991b1b' : 'var(--color-text-muted)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: '0.4rem',
+                          marginBottom: '0.75rem',
                         }}
                       >
-                        {daysRemaining === 0 ? 'Deadline Today!' : `${daysRemaining} days left to register`}
-                      </span>
-                    )}
-                  </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span className={`badge ${getCategoryBadgeClass(opp.category)}`}>
+                            {opp.category}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              padding: '0.15rem 0.45rem',
+                              borderRadius: '9999px',
+                              backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                              color: 'var(--color-primary)',
+                            }}
+                            title={`Cosine Similarity: ${similarityScore}`}
+                          >
+                            {score}% Match
+                          </span>
+                        </div>
 
-                  {/* Title */}
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-text-main)', marginBottom: '0.4rem' }}>
-                    {opp.title}
-                  </h3>
+                        {daysRemaining >= 0 && (
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              padding: '0.2rem 0.5rem',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: isClosingSoon ? '#fee2e2' : 'var(--color-bg-subtle)',
+                              color: isClosingSoon ? '#991b1b' : 'var(--color-text-muted)',
+                            }}
+                          >
+                            {daysRemaining === 0 ? 'Deadline Today!' : `${daysRemaining} days left`}
+                          </span>
+                        )}
+                      </div>
 
-                  {/* Description */}
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: '1.45', marginBottom: '0.85rem' }}>
-                    {opp.description}
-                  </p>
+                      {/* Title */}
+                      <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-text-main)', marginBottom: '0.4rem' }}>
+                        {opp.title}
+                      </h3>
 
-                  {/* Explainable "Why this matches" Box */}
-                  <div
-                    style={{
-                      backgroundColor: 'rgba(79, 70, 229, 0.05)',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: '0.65rem 0.75rem',
-                      marginBottom: '0.85rem',
-                      borderLeft: '3px solid var(--color-primary)',
-                    }}
-                  >
+                      {/* Description */}
+                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: '1.45', marginBottom: '0.85rem' }}>
+                        {opp.description}
+                      </p>
+
+                      {/* Accurate Explainable "Why this matches you" Box */}
+                      {matchReasons.length > 0 && (
+                        <div
+                          style={{
+                            backgroundColor: 'rgba(79, 70, 229, 0.05)',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: '0.65rem 0.75rem',
+                            marginBottom: '0.85rem',
+                            borderLeft: '3px solid var(--color-primary)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: 'var(--color-primary)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                              marginBottom: '0.3rem',
+                            }}
+                          >
+                            <Sparkles size={13} />
+                            <span>Why this matches you</span>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            {matchReasons.map((reason, idx) => (
+                              <div
+                                key={idx}
+                                style={{
+                                  fontSize: '0.775rem',
+                                  color: 'var(--color-text-main)',
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: '0.35rem',
+                                }}
+                              >
+                                <CheckCircle2 size={12} style={{ color: 'var(--color-primary)', marginTop: '2px', flexShrink: 0 }} />
+                                <span>{reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tags */}
+                      {opp.subcategoryTags && opp.subcategoryTags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.85rem' }}>
+                          {opp.subcategoryTags.map((tag) => (
+                            <span
+                              key={tag}
+                              style={{
+                                fontSize: '0.75rem',
+                                padding: '0.15rem 0.5rem',
+                                borderRadius: '9999px',
+                                backgroundColor: 'var(--color-bg-subtle)',
+                                color: 'var(--color-text-muted)',
+                                fontWeight: 500,
+                              }}
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Event, Eligibility & Registration Metadata (Reported Separately) */}
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr',
+                          gap: '0.4rem',
+                          fontSize: '0.8rem',
+                          color: 'var(--color-text-muted)',
+                          borderTop: '1px solid var(--color-border)',
+                          paddingTop: '0.75rem',
+                        }}
+                      >
+                        {eligibilityDetail && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#047857', fontWeight: 500 }}>
+                            <GraduationCap size={14} />
+                            <span>{eligibilityDetail}</span>
+                          </div>
+                        )}
+
+                        {scholarshipEligibilityDetail && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#b45309', fontWeight: 600 }}>
+                            <Award size={14} />
+                            <span>{scholarshipEligibilityDetail}</span>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Calendar size={14} style={{ color: 'var(--color-primary)' }} />
+                          <span>Event Date: <strong>{eventFormattedDate}</strong></span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Clock size={14} style={{ color: 'var(--color-secondary)' }} />
+                          <span>Registration Deadline: <strong>{deadlineFormattedDate}</strong></span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <MapPin size={14} style={{ color: 'var(--color-info)' }} />
+                          <span>{locationDetail || `${opp.venue}, ${opp.city}`}</span>
+                        </div>
+
+                        {opp.category === 'Scholarships' && opp.scholarshipDetails?.awardAmount && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#d97706', fontWeight: 600 }}>
+                            <Award size={14} />
+                            <span>Grant: {opp.scholarshipDetails.awardAmount}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Card Action */}
                     <div
+                      className="card-footer"
                       style={{
+                        padding: '0.75rem 1.25rem',
+                        backgroundColor: 'var(--color-bg-subtle)',
+                        borderTop: '1px solid var(--color-border)',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.35rem',
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        color: 'var(--color-primary)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                        marginBottom: '0.3rem',
+                        justifyContent: 'flex-end',
                       }}
                     >
-                      <Sparkles size={13} />
-                      <span>Why this matches you</span>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                      {matchReasons.map((reason, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            fontSize: '0.775rem',
-                            color: 'var(--color-text-main)',
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: '0.35rem',
-                          }}
+                      {opp.registrationLink ? (
+                        <a
+                          href={opp.registrationLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-sm btn-primary"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
                         >
-                          <CheckCircle2 size={12} style={{ color: 'var(--color-primary)', marginTop: '2px', flexShrink: 0 }} />
-                          <span>{reason}</span>
-                        </div>
-                      ))}
+                          <span>Register / Apply</span>
+                          <ExternalLink size={13} />
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => alert(`Details for "${opp.title}":\n\nVenue: ${opp.venue}, ${opp.city}\nEvent Date: ${eventFormattedDate}\nDeadline: ${deadlineFormattedDate}\n\nContact college student affairs office for registration instructions.`)}
+                        >
+                          View Instructions
+                        </button>
+                      )}
                     </div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
 
-                  {/* Tags */}
-                  {opp.subcategoryTags && opp.subcategoryTags.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.85rem' }}>
-                      {opp.subcategoryTags.map((tag) => (
-                        <span
-                          key={tag}
-                          style={{
-                            fontSize: '0.75rem',
-                            padding: '0.15rem 0.5rem',
-                            borderRadius: '9999px',
-                            backgroundColor: 'var(--color-bg-subtle)',
-                            color: 'var(--color-text-muted)',
-                            fontWeight: 500,
-                          }}
-                        >
-                          #{tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+      {/* ============================================================== */}
+      {/* VIEW 2: EXPLORE ALL (General Catalog Browsing, Separated)       */}
+      {/* ============================================================== */}
+      {activeView === 'EXPLORE_ALL' && (
+        <>
+          <div
+            style={{
+              padding: '0.65rem 0.85rem',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--color-bg-subtle)',
+              border: '1px solid var(--color-border)',
+              fontSize: '0.85rem',
+              color: 'var(--color-text-muted)',
+            }}
+          >
+            🧭 <strong>Explore All Catalog:</strong> Browsing all upcoming campus opportunities across categories. Items here are not personalized recommendations unless marked with the <em>Matches Your Interests</em> badge.
+          </div>
 
-                  {/* Event & Registration Metadata */}
+          {filteredExploreAll.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+              <Compass size={36} style={{ color: 'var(--color-primary)', opacity: 0.6, margin: '0 auto 0.75rem auto' }} />
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+                No opportunities found
+              </h3>
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                {searchQuery ? `No opportunities match "${searchQuery}".` : 'No opportunities available in this category.'}
+              </p>
+              {searchQuery && (
+                <button type="button" className="btn btn-outline" onClick={() => setSearchQuery('')} style={{ marginTop: '0.75rem' }}>
+                  Clear Search
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+              {filteredExploreAll.map((opp) => {
+                const matchInfo = matchedOppIdMap.get(opp.id);
+                const isRecommended = Boolean(matchInfo);
+                const daysRemaining = getDaysRemaining(opp.registrationDeadline || opp.eventDate);
+                const isClosingSoon = daysRemaining >= 0 && daysRemaining <= 7;
+                const eventFormattedDate = opp.eventDate
+                  ? new Date(opp.eventDate).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  : 'TBD';
+                const deadlineFormattedDate = opp.registrationDeadline
+                  ? new Date(opp.registrationDeadline).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  : 'Open';
+
+                return (
                   <div
+                    key={opp.id}
+                    className="card"
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr',
-                      gap: '0.4rem',
-                      fontSize: '0.8rem',
-                      color: 'var(--color-text-muted)',
-                      borderTop: '1px solid var(--color-border)',
-                      paddingTop: '0.75rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      borderTop: isRecommended ? '3px solid var(--color-primary)' : '1px solid var(--color-border)',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <Calendar size={14} style={{ color: 'var(--color-primary)' }} />
-                      <span>Event Date: <strong>{eventFormattedDate}</strong></span>
-                    </div>
+                    <div className="card-body" style={{ padding: '1.25rem' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: '0.4rem',
+                          marginBottom: '0.75rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span className={`badge ${getCategoryBadgeClass(opp.category)}`}>
+                            {opp.category}
+                          </span>
+                          {isRecommended && (
+                            <span
+                              style={{
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '9999px',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                color: '#047857',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                              }}
+                            >
+                              <Sparkles size={11} /> Matches Your Interests
+                            </span>
+                          )}
+                        </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <Clock size={14} style={{ color: 'var(--color-secondary)' }} />
-                      <span>Registration Deadline: <strong>{deadlineFormattedDate}</strong></span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <MapPin size={14} style={{ color: 'var(--color-info)' }} />
-                      <span>{opp.venue} &bull; {opp.city}</span>
-                    </div>
-
-                    {opp.category === 'Scholarships' && opp.scholarshipDetails?.awardAmount && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#d97706', fontWeight: 600 }}>
-                        <Award size={14} />
-                        <span>Award: {opp.scholarshipDetails.awardAmount}</span>
+                        {daysRemaining >= 0 && (
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              padding: '0.2rem 0.5rem',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: isClosingSoon ? '#fee2e2' : 'var(--color-bg-subtle)',
+                              color: isClosingSoon ? '#991b1b' : 'var(--color-text-muted)',
+                            }}
+                          >
+                            {daysRemaining === 0 ? 'Deadline Today!' : `${daysRemaining} days left`}
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
 
-                {/* Card Action */}
-                <div
-                  className="card-footer"
-                  style={{
-                    padding: '0.75rem 1.25rem',
-                    backgroundColor: 'var(--color-bg-subtle)',
-                    borderTop: '1px solid var(--color-border)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                  }}
-                >
-                  {opp.registrationLink ? (
-                    <a
-                      href={opp.registrationLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-sm btn-primary"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                      <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-text-main)', marginBottom: '0.4rem' }}>
+                        {opp.title}
+                      </h3>
+
+                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: '1.45', marginBottom: '0.85rem' }}>
+                        {opp.description}
+                      </p>
+
+                      {/* Tags */}
+                      {opp.subcategoryTags && opp.subcategoryTags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.85rem' }}>
+                          {opp.subcategoryTags.map((tag) => (
+                            <span
+                              key={tag}
+                              style={{
+                                fontSize: '0.75rem',
+                                padding: '0.15rem 0.5rem',
+                                borderRadius: '9999px',
+                                backgroundColor: 'var(--color-bg-subtle)',
+                                color: 'var(--color-text-muted)',
+                                fontWeight: 500,
+                              }}
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Event & Registration Metadata */}
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr',
+                          gap: '0.4rem',
+                          fontSize: '0.8rem',
+                          color: 'var(--color-text-muted)',
+                          borderTop: '1px solid var(--color-border)',
+                          paddingTop: '0.75rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Calendar size={14} style={{ color: 'var(--color-primary)' }} />
+                          <span>Event Date: <strong>{eventFormattedDate}</strong></span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Clock size={14} style={{ color: 'var(--color-secondary)' }} />
+                          <span>Registration Deadline: <strong>{deadlineFormattedDate}</strong></span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <MapPin size={14} style={{ color: 'var(--color-info)' }} />
+                          <span>{opp.venue} &bull; {opp.city}</span>
+                        </div>
+
+                        {opp.category === 'Scholarships' && opp.scholarshipDetails?.awardAmount && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#d97706', fontWeight: 600 }}>
+                            <Award size={14} />
+                            <span>Award: {opp.scholarshipDetails.awardAmount}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      className="card-footer"
+                      style={{
+                        padding: '0.75rem 1.25rem',
+                        backgroundColor: 'var(--color-bg-subtle)',
+                        borderTop: '1px solid var(--color-border)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'flex-end',
+                      }}
                     >
-                      <span>Register / Apply</span>
-                      <ExternalLink size={13} />
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline"
-                      onClick={() => alert(`Details for "${opp.title}":\n\nVenue: ${opp.venue}, ${opp.city}\nEvent Date: ${eventFormattedDate}\nDeadline: ${deadlineFormattedDate}\n\nContact college student affairs office for registration instructions.`)}
-                    >
-                      View Instructions
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                      {opp.registrationLink ? (
+                        <a
+                          href={opp.registrationLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-sm btn-outline"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                        >
+                          <span>Register / Apply</span>
+                          <ExternalLink size={13} />
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => alert(`Details for "${opp.title}":\n\nVenue: ${opp.venue}, ${opp.city}\nEvent Date: ${eventFormattedDate}\nDeadline: ${deadlineFormattedDate}\n\nContact college student affairs office for registration instructions.`)}
+                        >
+                          View Instructions
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

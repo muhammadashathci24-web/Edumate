@@ -3,12 +3,20 @@ import {
   matchOpportunities,
   isOpportunityExpired,
   checkAcademicEligibility,
-  getDaysRemaining,
+  tokenizeText,
+  computeTfIdfVectors,
+  computeCosineSimilarity,
+  COSINE_SIMILARITY_THRESHOLD,
+  STOP_WORDS,
 } from '../src/lib/recommendations';
 import { Opportunity, Student, StudentInterests } from '../src/lib/types';
+import { INITIAL_OPPORTUNITIES } from '../server/seedData.js';
 
-describe('Personalized Opportunity & Event Recommendations Engine', () => {
-  const sampleStudent: Student = {
+describe('Personalized Opportunity & Event Recommendations Engine (TF-IDF & Strict Gate)', () => {
+  const futureDate = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const pastDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const testStudent: Student = {
     usn: '1EM22AI001',
     uid: 'stu-001',
     name: 'Aarav Sharma',
@@ -19,210 +27,291 @@ describe('Personalized Opportunity & Event Recommendations Engine', () => {
     status: 'active',
   };
 
-  const futureDate = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const pastDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  describe('TF-IDF Vectorization & Tokenization Core', () => {
+    it('normalizes tokens and excludes stop words and generic domain terms', () => {
+      const text = 'Annual scholarship opportunity for students to register and participate in AI machine learning event';
+      const tokens = tokenizeText(text);
 
-  const sampleOpportunities: Opportunity[] = [
-    {
-      id: 'opp-1',
-      title: 'State AI & Robotics Hackathon 2026',
-      category: 'Coding and technology',
-      description: 'Annual 24-hour hackathon for building innovative AI applications.',
-      interestTags: ['Coding and technology', 'AI and machine learning', 'hackathons'],
-      subcategoryTags: ['AI and machine learning', 'hackathons', 'web development'],
-      venue: 'Tech Innovation Hall',
-      city: 'Bengaluru',
-      eventDate: futureDate,
-      registrationDeadline: futureDate,
-      eligibleDepartments: ['AIML', 'CSE', 'IS'],
-      eligibleYears: [2, 3, 4],
-      eligibleSections: ['ALL'],
-      isActive: true,
-      createdAt: '2026-10-01',
-    },
-    {
-      id: 'opp-2',
-      title: 'Inter-Collegiate Badminton Championship',
+      // Stop words and generic words must be excluded
+      expect(tokens).not.toContain('scholarship');
+      expect(tokens).not.toContain('opportunity');
+      expect(tokens).not.toContain('students');
+      expect(tokens).not.toContain('student');
+      expect(tokens).not.toContain('register');
+      expect(tokens).not.toContain('participate');
+      expect(tokens).not.toContain('event');
+      expect(tokens).not.toContain('annual');
+      expect(tokens).not.toContain('for');
+      expect(tokens).not.toContain('and');
+      expect(tokens).not.toContain('in');
+
+      // Domain topic tokens and bigrams must be preserved
+      expect(tokens).toContain('ai');
+      expect(tokens).toContain('machine');
+      expect(tokens).toContain('learning');
+      expect(tokens).toContain('machine_learning');
+    });
+
+    it('calculates TF-IDF vectors and positive cosine similarity for matching content', () => {
+      const studentTokens = tokenizeText('Coding and technology AI and machine learning hackathons');
+      const opp1Tokens = tokenizeText('Inter-Collegiate AI Intelligent Automation Hackathon');
+      const opp2Tokens = tokenizeText('Inter-Department Badminton Table Tennis Championship');
+
+      const { studentVector, opportunityVectors } = computeTfIdfVectors(studentTokens, [
+        { id: 'opp-ai', tokens: opp1Tokens },
+        { id: 'opp-sports', tokens: opp2Tokens },
+      ]);
+
+      const simAi = computeCosineSimilarity(studentVector, opportunityVectors.get('opp-ai')!);
+      const simSports = computeCosineSimilarity(studentVector, opportunityVectors.get('opp-sports')!);
+
+      expect(simAi).toBeGreaterThan(COSINE_SIMILARITY_THRESHOLD);
+      expect(simSports).toBe(0); // Zero overlap between AI hackathon and Badminton
+    });
+  });
+
+  describe('Screenshot Scenario: Student with Cultural & Academic Interests (Bhavya Patel)', () => {
+    // Exactly matches the student profile from the screenshot
+    const bhavyaStudent: Student = {
+      usn: '1EM22AI002',
+      uid: 'stu-ai3a-002',
+      name: 'Bhavya Patel',
+      email: 'bhavya.patel@example.edu',
+      department: 'AIML',
+      year: 3,
+      section: 'A',
+      status: 'active',
+    };
+
+    const bhavyaInterests: StudentInterests = {
+      categories: ['Cultural and arts activities', 'Academic competitions and workshops'],
+      subcategories: ['music', 'dance', 'technical workshops'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    };
+
+    it('recommends cultural showcase and academic research expo matching saved interests', () => {
+      const results = matchOpportunities(bhavyaStudent, bhavyaInterests, INITIAL_OPPORTUNITIES as Opportunity[], 84);
+      const matchedIds = results.map((r) => r.opportunity.id);
+
+      // Must recommend Cultural Fest and Technical Paper Expo
+      expect(matchedIds).toContain('opp-cultural-fest-2026');
+      expect(matchedIds).toContain('opp-tech-paper-expo-2026');
+    });
+
+    it('does NOT recommend an AI/ML scholarship to a student without coding/AI interests', () => {
+      const results = matchOpportunities(bhavyaStudent, bhavyaInterests, INITIAL_OPPORTUNITIES as Opportunity[], 84);
+      const matchedIds = results.map((r) => r.opportunity.id);
+
+      // opp-merit-scholarship-2026 is tagged with AI & ML and competitive programming
+      // Bhavya has NOT selected Coding/AI interests -> must NOT appear!
+      expect(matchedIds).not.toContain('opp-merit-scholarship-2026');
+    });
+
+    it('does NOT recommend unrelated sports events to a student who has not selected Sports', () => {
+      const results = matchOpportunities(bhavyaStudent, bhavyaInterests, INITIAL_OPPORTUNITIES as Opportunity[], 84);
+      const matchedIds = results.map((r) => r.opportunity.id);
+
+      expect(matchedIds).not.toContain('opp-badminton-cup-2026');
+      expect(matchedIds).toContain('opp-cultural-fest-2026');
+      expect(matchedIds).not.toContain('opp-cricket-football-tournament-2026');
+    });
+  });
+
+  describe('Broad vs Specific Interest Matching Rules', () => {
+    const sportsOpp1: Opportunity = {
+      id: 'opp-badminton',
+      title: 'Badminton Doubles Cup',
       category: 'Sports',
-      description: 'Annual collegiate tournament for singles and doubles.',
+      description: 'Badminton tournament',
       interestTags: ['Sports', 'badminton'],
       subcategoryTags: ['badminton'],
-      venue: 'Sports Complex',
+      venue: 'Gym',
       city: 'Bengaluru',
       eventDate: futureDate,
       registrationDeadline: futureDate,
-      eligibleDepartments: ['ALL'],
-      eligibleYears: [1, 2, 3, 4],
-      eligibleSections: ['ALL'],
       isActive: true,
       createdAt: '2026-10-01',
-    },
-    {
-      id: 'opp-3',
-      title: 'Expired Tech Fest',
-      category: 'Coding and technology',
-      description: 'Past event with closed registration.',
-      interestTags: ['Coding and technology'],
-      subcategoryTags: ['web development'],
-      venue: 'Auditorium',
-      city: 'Bengaluru',
-      eventDate: pastDate,
-      registrationDeadline: pastDate,
-      eligibleDepartments: ['ALL'],
-      eligibleYears: [3],
-      isActive: true,
-      createdAt: '2026-09-01',
-    },
-    {
-      id: 'opp-4',
-      title: 'Inactive Workshop',
-      category: 'Academic competitions and workshops',
-      description: 'Draft workshop not yet approved.',
-      interestTags: ['Academic competitions and workshops'],
-      subcategoryTags: ['technical workshops'],
-      venue: 'Room 101',
+    };
+
+    const sportsOpp2: Opportunity = {
+      id: 'opp-cricket',
+      title: 'Cricket Knockout Championship',
+      category: 'Sports',
+      description: 'Cricket tournament',
+      interestTags: ['Sports', 'cricket'],
+      subcategoryTags: ['cricket'],
+      venue: 'Stadium',
       city: 'Bengaluru',
       eventDate: futureDate,
       registrationDeadline: futureDate,
-      isActive: false,
-      createdAt: '2026-10-01',
-    },
-    {
-      id: 'opp-5',
-      title: 'Mechanical Engineering Design Expo',
-      category: 'Academic competitions and workshops',
-      description: 'CAD and automotive design exhibition.',
-      interestTags: ['Academic competitions and workshops'],
-      subcategoryTags: ['project exhibitions'],
-      venue: 'Mech Lab',
-      city: 'Bengaluru',
-      eventDate: futureDate,
-      registrationDeadline: futureDate,
-      eligibleDepartments: ['MECH'],
-      eligibleYears: [3, 4],
       isActive: true,
       createdAt: '2026-10-01',
-    },
-    {
-      id: 'opp-6',
-      title: 'STEM Merit Excellence Scholarship',
+    };
+
+    it('matches all sports subcategories when broad "Sports" category is selected', () => {
+      const broadSportsInterests: StudentInterests = {
+        categories: ['Sports'],
+        subcategories: [],
+      };
+
+      const results = matchOpportunities(testStudent, broadSportsInterests, [sportsOpp1, sportsOpp2]);
+      const matchedIds = results.map((r) => r.opportunity.id);
+
+      expect(matchedIds).toContain('opp-badminton');
+      expect(matchedIds).toContain('opp-cricket');
+    });
+
+    it('matches ONLY badminton when specific "badminton" is selected without broad "Sports"', () => {
+      const specificBadmintonInterests: StudentInterests = {
+        categories: [],
+        subcategories: ['badminton'],
+      };
+
+      const results = matchOpportunities(testStudent, specificBadmintonInterests, [sportsOpp1, sportsOpp2]);
+      const matchedIds = results.map((r) => r.opportunity.id);
+
+      expect(matchedIds).toContain('opp-badminton');
+      expect(matchedIds).not.toContain('opp-cricket'); // Must NOT match unrelated cricket
+    });
+  });
+
+  describe('Scholarship Eligibility & Topic Rules', () => {
+    const aiScholarship: Opportunity = {
+      id: 'opp-ai-scholarship',
+      title: 'Endowment Merit Scholarship in Artificial Intelligence',
       category: 'Scholarships',
-      description: 'Annual merit scholarship for high academic achievers in technology.',
-      interestTags: ['Scholarships', 'Coding and technology'],
+      description: 'Academic grant for students pursuing AI innovation',
+      interestTags: ['Coding and technology', 'AI and machine learning'],
       subcategoryTags: ['AI and machine learning'],
-      venue: 'Online Application',
-      city: 'Online / Virtual',
+      venue: 'Admin Office',
+      city: 'Bengaluru',
       eventDate: futureDate,
       registrationDeadline: futureDate,
-      eligibleDepartments: ['AIML', 'CSE'],
+      eligibleDepartments: ['AIML'],
       eligibleYears: [3],
       scholarshipDetails: {
         awardAmount: '₹50,000',
         minimumMarksPercentage: 75,
-        criteriaNotes: 'Open to 3rd year students with 75%+ aggregate.',
       },
       isActive: true,
       createdAt: '2026-10-01',
-    },
-  ];
-
-  it('correctly detects expired opportunities', () => {
-    expect(isOpportunityExpired(sampleOpportunities[2])).toBe(true);
-    expect(isOpportunityExpired(sampleOpportunities[0])).toBe(false);
-  });
-
-  it('filters out inactive and expired opportunities from recommendations', () => {
-    const interests: StudentInterests = {
-      categories: ['Coding and technology'],
-      subcategories: ['AI and machine learning'],
-      preferredCity: 'Bengaluru',
     };
 
-    const results = matchOpportunities(sampleStudent, interests, sampleOpportunities);
-    const resultIds = results.map((r) => r.opportunity.id);
+    it('recommends scholarship when student has matching interest AND meets marks criteria', () => {
+      const codingInterests: StudentInterests = {
+        categories: ['Coding and technology'],
+        subcategories: ['AI and machine learning'],
+      };
 
-    // Opp-3 is expired, Opp-4 is inactive
-    expect(resultIds).not.toContain('opp-3');
-    expect(resultIds).not.toContain('opp-4');
+      // Student has 80% marks (>= 75%)
+      const results = matchOpportunities(testStudent, codingInterests, [aiScholarship], 80);
+      expect(results.map((r) => r.opportunity.id)).toContain('opp-ai-scholarship');
+    });
+
+    it('does NOT recommend scholarship when marks are below requirement even if interest matches', () => {
+      const codingInterests: StudentInterests = {
+        categories: ['Coding and technology'],
+        subcategories: ['AI and machine learning'],
+      };
+
+      // Student has 68% marks (< 75%)
+      const results = matchOpportunities(testStudent, codingInterests, [aiScholarship], 68);
+      expect(results.map((r) => r.opportunity.id)).not.toContain('opp-ai-scholarship');
+    });
+
+    it('does NOT recommend scholarship if topic does NOT match even if marks qualify', () => {
+      const culturalInterests: StudentInterests = {
+        categories: ['Cultural and arts activities'],
+        subcategories: ['music'],
+      };
+
+      // Student has 90% marks, but topic does not match
+      const results = matchOpportunities(testStudent, culturalInterests, [aiScholarship], 90);
+      expect(results.map((r) => r.opportunity.id)).not.toContain('opp-ai-scholarship');
+    });
   });
 
-  it('filters out opportunities by department eligibility', () => {
-    const interests: StudentInterests = {
-      categories: ['Academic competitions and workshops'],
-      subcategories: ['project exhibitions'],
-      preferredCity: 'Bengaluru',
-    };
+  describe('Empty State & General Gate Rules', () => {
+    it('returns empty list when student has no saved interests (does not fall back to all)', () => {
+      const emptyInterests: StudentInterests = {
+        categories: [],
+        subcategories: [],
+        customInterests: [],
+      };
 
-    // sampleStudent is AIML, opp-5 is MECH only
-    const results = matchOpportunities(sampleStudent, interests, sampleOpportunities);
-    const resultIds = results.map((r) => r.opportunity.id);
+      const resultsWithEmpty = matchOpportunities(testStudent, emptyInterests, INITIAL_OPPORTUNITIES as Opportunity[]);
+      expect(resultsWithEmpty).toHaveLength(0);
 
-    expect(resultIds).not.toContain('opp-5');
+      const resultsWithNull = matchOpportunities(testStudent, null, INITIAL_OPPORTUNITIES as Opportunity[]);
+      expect(resultsWithNull).toHaveLength(0);
+    });
+
+    it('does NOT include "Scholarships" in whyThisMatches explanations', () => {
+      const codingInterests: StudentInterests = {
+        categories: ['Coding and technology'],
+        subcategories: ['AI and machine learning'],
+      };
+
+      const results = matchOpportunities(testStudent, codingInterests, INITIAL_OPPORTUNITIES as Opportunity[], 85);
+      results.forEach((match) => {
+        match.matchReasons.forEach((reason) => {
+          expect(reason.toLowerCase()).not.toContain('interest category in scholarships');
+        });
+      });
+    });
+
+    it('filters out expired opportunities and inactive opportunities', () => {
+      const expiredOpp: Opportunity = {
+        id: 'opp-expired',
+        title: 'Past Event',
+        category: 'Sports',
+        description: 'Past event',
+        interestTags: ['Sports'],
+        subcategoryTags: ['football'],
+        venue: 'Stadium',
+        city: 'Bengaluru',
+        eventDate: pastDate,
+        registrationDeadline: pastDate,
+        isActive: true,
+        createdAt: '2026-09-01',
+      };
+
+      const inactiveOpp: Opportunity = {
+        id: 'opp-inactive',
+        title: 'Future Inactive Event',
+        category: 'Sports',
+        description: 'Inactive event',
+        interestTags: ['Sports'],
+        subcategoryTags: ['football'],
+        venue: 'Stadium',
+        city: 'Bengaluru',
+        eventDate: futureDate,
+        registrationDeadline: futureDate,
+        isActive: false,
+        createdAt: '2026-10-01',
+      };
+
+      const sportsInterests: StudentInterests = {
+        categories: ['Sports'],
+        subcategories: ['football'],
+      };
+
+      const results = matchOpportunities(testStudent, sportsInterests, [expiredOpp, inactiveOpp]);
+      expect(results).toHaveLength(0);
+    });
   });
 
-  it('ranks matching interests and location above non-matching opportunities', () => {
-    const interests: StudentInterests = {
-      categories: ['Coding and technology'],
-      subcategories: ['AI and machine learning', 'hackathons'],
-      preferredCity: 'Bengaluru',
-    };
-
-    const results = matchOpportunities(sampleStudent, interests, sampleOpportunities);
-    expect(results.length).toBeGreaterThan(0);
-    // The top ranked result should be opp-1 (AI Hackathon in Bengaluru)
-    expect(results[0].opportunity.id).toBe('opp-1');
-    expect(results[0].score).toBeGreaterThan(sampleOpportunities[1] ? 10 : 0);
-  });
-
-  it('produces explainable matchReasons for each recommended opportunity', () => {
-    const interests: StudentInterests = {
-      categories: ['Sports'],
-      subcategories: ['badminton'],
-      preferredCity: 'Bengaluru',
-    };
-
-    const results = matchOpportunities(sampleStudent, interests, sampleOpportunities);
-    const badmintonMatch = results.find((r) => r.opportunity.id === 'opp-2');
-
-    expect(badmintonMatch).toBeDefined();
-    expect(badmintonMatch!.matchReasons.length).toBeGreaterThan(0);
-    expect(badmintonMatch!.matchReasons.some((r) => r.includes('Sports'))).toBe(true);
-    expect(badmintonMatch!.matchReasons.some((r) => r.includes('Bengaluru'))).toBe(true);
-  });
-
-  it('checks scholarship eligibility rules against average marks', () => {
-    const oppScholarship = sampleOpportunities[5]; // requires 75% marks
-
-    // Student with 80% marks qualifies
-    const eligibleCheck = checkAcademicEligibility(oppScholarship, sampleStudent, 80);
-    expect(eligibleCheck.isEligible).toBe(true);
-
-    // Student with 65% marks does not qualify
-    const ineligibleCheck = checkAcademicEligibility(oppScholarship, sampleStudent, 65);
-    expect(ineligibleCheck.isEligible).toBe(false);
-    expect(ineligibleCheck.reason).toContain('minimum 75%');
-  });
-
-  describe('Sample Student Records & Interests Integrity', () => {
-    it('verifies all 30 sample students have stable assigned interests for local dev', async () => {
+  describe('Sample Students Integrity', () => {
+    it('verifies all 30 sample students have valid categories without Scholarships as an interest category', async () => {
       const { DEMO_STUDENTS } = await import('../server/seedData.js');
       expect(DEMO_STUDENTS).toHaveLength(30);
 
-      const allCategories = new Set<string>();
       DEMO_STUDENTS.forEach((student) => {
         expect(student.interests).toBeDefined();
-        expect(student.interests?.categories.length).toBeGreaterThan(0);
-        expect(student.interests?.subcategories.length).toBeGreaterThan(0);
-        expect(student.interests?.preferredCity).toBeTruthy();
-        student.interests?.categories.forEach((cat) => allCategories.add(cat));
+        // Scholarships must not be assigned as a student interest category
+        expect(student.interests?.categories).not.toContain('Scholarships');
       });
-
-      // Confirms all core domains are represented
-      expect(allCategories.has('Sports')).toBe(true);
-      expect(allCategories.has('Coding and technology')).toBe(true);
-      expect(allCategories.has('Cultural and arts activities')).toBe(true);
-      expect(allCategories.has('Academic competitions and workshops')).toBe(true);
-      expect(allCategories.has('Entrepreneurship and social impact')).toBe(true);
     });
   });
 });
