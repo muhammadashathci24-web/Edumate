@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Alert } from '../../components/Alert';
-import { Student, Faculty, SectionsConfig, Course } from '../../lib/types';
+import { Student, Faculty, SectionsConfig, Course, Opportunity } from '../../lib/types';
 import { AddStudentModal } from './AddStudentModal';
 import { EditStudentModal } from './EditStudentModal';
 import { AddFacultyModal } from './AddFacultyModal';
 import { EditFacultyModal } from './EditFacultyModal';
 import { ManageSectionsModal } from './ManageSectionsModal';
+import { OpportunityFormModal } from './OpportunityFormModal';
 import {
   Users,
   UserPlus,
@@ -17,16 +18,20 @@ import {
   RefreshCw,
   GraduationCap,
   BookOpen,
+  Sparkles,
+  Plus,
+  ExternalLink,
 } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
   const { token } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'courses'>('courses');
+  const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'courses' | 'opportunities'>('courses');
 
   const [students, setStudents] = useState<Student[]>([]);
   const [faculty, setFaculty] = useState<Faculty[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [config, setConfig] = useState<SectionsConfig>({
     departments: ['AIML', 'CSE', 'IS', 'MECH', 'EC', 'Robotics'],
     years: [1, 2, 3, 4],
@@ -43,9 +48,12 @@ export const AdminDashboard: React.FC = () => {
   const [selectedSection, setSelectedSection] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
 
-  // Filter State for Faculty & Courses
+  // Filter State for Faculty & Courses & Opportunities
   const [facultySearchQuery, setFacultySearchQuery] = useState('');
   const [courseSearchQuery, setCourseSearchQuery] = useState('');
+  const [opportunitySearchQuery, setOpportunitySearchQuery] = useState('');
+  const [opportunityCategoryFilter, setOpportunityCategoryFilter] = useState('ALL');
+  const [opportunityStatusFilter, setOpportunityStatusFilter] = useState('ALL');
 
   // Modals state
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
@@ -55,6 +63,9 @@ export const AdminDashboard: React.FC = () => {
   const [editingFaculty, setEditingFaculty] = useState<Faculty | null>(null);
 
   const [isManageSectionsOpen, setIsManageSectionsOpen] = useState(false);
+
+  const [isAddOpportunityOpen, setIsAddOpportunityOpen] = useState(false);
+  const [editingOpportunity, setEditingOpportunity] = useState<Opportunity | null>(null);
 
   // Fetch initial data
   const loadDirectoryData = async () => {
@@ -84,6 +95,12 @@ export const AdminDashboard: React.FC = () => {
       const facRes = await fetch('/api/faculty', { headers });
       if (facRes.ok) {
         setFaculty(await facRes.json());
+      }
+
+      // Opportunities
+      const oppRes = await fetch('/api/opportunities?all=true', { headers });
+      if (oppRes.ok) {
+        setOpportunities(await oppRes.json());
       }
     } catch (err: any) {
       setFeedback({ type: 'danger', message: 'Failed to load directories: ' + err.message });
@@ -128,6 +145,74 @@ export const AdminDashboard: React.FC = () => {
       });
     } catch (err: any) {
       setFeedback({ type: 'danger', message: err.message });
+    }
+  };
+
+  // Toggle opportunity active/inactive status
+  const toggleOpportunityStatus = async (id: string, currentStatus: boolean, title: string) => {
+    const nextStatus = !currentStatus;
+    try {
+      const res = await fetch(`/api/opportunities/${encodeURIComponent(id)}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isActive: nextStatus }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to update opportunity status.');
+      }
+
+      setOpportunities((prev) =>
+        prev.map((o) => (o.id === id ? { ...o, isActive: nextStatus } : o))
+      );
+
+      setFeedback({
+        type: 'success',
+        message: `"${title}" has been set to ${nextStatus ? 'Active' : 'Inactive'}.`,
+      });
+    } catch (err: any) {
+      setFeedback({ type: 'danger', message: err.message });
+    }
+  };
+
+  // Save opportunity (Create or Update)
+  const handleSaveOpportunity = async (data: Partial<Opportunity>) => {
+    try {
+      const isEdit = Boolean(editingOpportunity);
+      const url = isEdit ? `/api/opportunities/${encodeURIComponent(editingOpportunity!.id)}` : '/api/opportunities';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to save opportunity.');
+      }
+
+      const result = await res.json();
+      const savedOpp = result.opportunity;
+
+      if (isEdit) {
+        setOpportunities((prev) => prev.map((o) => (o.id === savedOpp.id ? savedOpp : o)));
+        setFeedback({ type: 'success', message: `Opportunity "${savedOpp.title}" updated successfully.` });
+      } else {
+        setOpportunities((prev) => [savedOpp, ...prev]);
+        setFeedback({ type: 'success', message: `Opportunity "${savedOpp.title}" created successfully.` });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'danger', message: err.message });
+      throw err;
     }
   };
 
@@ -333,6 +418,15 @@ export const AdminDashboard: React.FC = () => {
         >
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
             <Users size={16} /> Students Directory ({students.length})
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'opportunities' ? 'active' : ''}`}
+          onClick={() => setActiveTab('opportunities')}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Sparkles size={16} /> Opportunities & Events ({opportunities.length})
           </span>
         </button>
       </nav>
@@ -855,6 +949,215 @@ export const AdminDashboard: React.FC = () => {
             message: `Faculty account for ${updatedFac.name} updated successfully.`,
           });
         }}
+      />
+
+      {/* TAB 4: OPPORTUNITIES CATALOG */}
+      {activeTab === 'opportunities' && (
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <h2 className="card-title">Opportunities & Events Catalog</h2>
+              <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
+                Curate campus events, hackathons, sports meets, workshops, and scholarships for student recommendations.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                setEditingOpportunity(null);
+                setIsAddOpportunityOpen(true);
+              }}
+            >
+              <Plus size={15} /> Add New Opportunity
+            </button>
+          </div>
+
+          <div className="card-body">
+            {/* Filters */}
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+              <div style={{ flex: 1, minWidth: '220px', position: 'relative' }}>
+                <Search
+                  size={16}
+                  style={{
+                    position: 'absolute',
+                    left: '0.75rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--color-text-muted)',
+                  }}
+                />
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search opportunities by title, description, or city..."
+                  value={opportunitySearchQuery}
+                  onChange={(e) => setOpportunitySearchQuery(e.target.value)}
+                  style={{ paddingLeft: '2.25rem' }}
+                />
+              </div>
+
+              <div style={{ minWidth: '180px' }}>
+                <select
+                  className="form-control"
+                  value={opportunityCategoryFilter}
+                  onChange={(e) => setOpportunityCategoryFilter(e.target.value)}
+                >
+                  <option value="ALL">All Categories</option>
+                  <option value="Coding and technology">Coding and technology</option>
+                  <option value="Sports">Sports</option>
+                  <option value="Cultural and arts activities">Cultural and arts activities</option>
+                  <option value="Academic competitions and workshops">Academic competitions & workshops</option>
+                  <option value="Entrepreneurship and social impact">Entrepreneurship & social impact</option>
+                  <option value="Scholarships">Scholarships</option>
+                </select>
+              </div>
+
+              <div style={{ minWidth: '140px' }}>
+                <select
+                  className="form-control"
+                  value={opportunityStatusFilter}
+                  onChange={(e) => setOpportunityStatusFilter(e.target.value)}
+                >
+                  <option value="ALL">All Status</option>
+                  <option value="active">Active Only</option>
+                  <option value="inactive">Inactive Only</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Opportunities Table */}
+            {opportunities.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--color-text-muted)' }}>
+                <p>No opportunities in the catalog. Click "Add New Opportunity" to create one.</p>
+              </div>
+            ) : (
+              <div className="table-responsive">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Title & Scope</th>
+                      <th>Category</th>
+                      <th>Venue & Region</th>
+                      <th>Dates & Deadline</th>
+                      <th>Eligibility</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {opportunities
+                      .filter((opp) => {
+                        if (opportunityCategoryFilter !== 'ALL' && opp.category !== opportunityCategoryFilter) {
+                          return false;
+                        }
+                        if (opportunityStatusFilter === 'active' && !opp.isActive) return false;
+                        if (opportunityStatusFilter === 'inactive' && opp.isActive) return false;
+                        if (opportunitySearchQuery.trim()) {
+                          const q = opportunitySearchQuery.toLowerCase().trim();
+                          const matches =
+                            opp.title.toLowerCase().includes(q) ||
+                            opp.description.toLowerCase().includes(q) ||
+                            opp.city.toLowerCase().includes(q) ||
+                            (opp.subcategoryTags || []).some((t) => t.toLowerCase().includes(q));
+                          if (!matches) return false;
+                        }
+                        return true;
+                      })
+                      .map((opp) => (
+                        <tr key={opp.id}>
+                          <td>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>{opp.title}</div>
+                            <div style={{ fontSize: '0.775rem', color: 'var(--color-text-muted)', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {opp.description}
+                            </div>
+                            {opp.registrationLink && (
+                              <a
+                                href={opp.registrationLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ fontSize: '0.75rem', color: 'var(--color-primary)', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.2rem' }}
+                              >
+                                <span>Link</span> <ExternalLink size={11} />
+                              </a>
+                            )}
+                          </td>
+                          <td>
+                            <span className="badge">{opp.category}</span>
+                            {opp.subcategoryTags && opp.subcategoryTags.length > 0 && (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+                                {opp.subcategoryTags.slice(0, 2).join(', ')}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '0.85rem' }}>{opp.venue}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{opp.city}</div>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '0.8rem' }}>
+                              Event: {opp.eventDate ? opp.eventDate.split('T')[0] : 'TBD'}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                              Deadline: {opp.registrationDeadline ? opp.registrationDeadline.split('T')[0] : 'None'}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '0.8rem' }}>
+                              {opp.eligibleDepartments?.join(', ') || 'ALL'}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                              Year {opp.eligibleYears?.join(', ') || '1-4'}
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`badge ${opp.isActive ? 'badge-active' : 'badge-disabled'}`}>
+                              {opp.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={() => {
+                                  setEditingOpportunity(opp);
+                                  setIsAddOpportunityOpen(true);
+                                }}
+                                title="Edit Opportunity"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${opp.isActive ? 'btn-danger-outline' : 'btn-success-outline'}`}
+                                onClick={() => toggleOpportunityStatus(opp.id, opp.isActive, opp.title)}
+                                title={opp.isActive ? 'Deactivate Opportunity' : 'Activate Opportunity'}
+                              >
+                                <Power size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Opportunity Modal */}
+      <OpportunityFormModal
+        isOpen={isAddOpportunityOpen}
+        onClose={() => {
+          setIsAddOpportunityOpen(false);
+          setEditingOpportunity(null);
+        }}
+        opportunity={editingOpportunity}
+        onSave={handleSaveOpportunity}
+        departments={config.departments}
       />
 
       <ManageSectionsModal

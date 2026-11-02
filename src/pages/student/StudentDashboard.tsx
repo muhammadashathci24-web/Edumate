@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { EmptyState } from './EmptyState';
 import { Alert } from '../../components/Alert';
-import { Assignment, Course, StudentInterests } from '../../lib/types';
+import { Assignment, Course, StudentInterests, Opportunity } from '../../lib/types';
 import {
   User,
   BookOpen,
@@ -16,8 +16,10 @@ import {
   MapPin,
   Compass,
   Edit2,
+  ArrowRight,
 } from 'lucide-react';
 import { InterestsQuestionnaireModal } from '../../components/InterestsQuestionnaireModal';
+import { RecommendationsTab } from './RecommendationsTab';
 
 interface AttendanceItem {
   id: string;
@@ -35,11 +37,12 @@ interface MarkItem {
 
 export const StudentDashboard: React.FC = () => {
   const { profile, refreshProfile } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'courses' | 'assignments' | 'attendance' | 'marks'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'recommendations' | 'courses' | 'assignments' | 'attendance' | 'marks'>('overview');
   const [courses, setCourses] = useState<Course[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceItem[]>([]);
   const [marks, setMarks] = useState<MarkItem[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [studentInterests, setStudentInterests] = useState<StudentInterests | null>(profile?.interests || null);
   const [isInterestsModalOpen, setIsInterestsModalOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
@@ -66,6 +69,12 @@ export const StudentDashboard: React.FC = () => {
         setMarks(data.marks || []);
         if (data.student?.interests) {
           setStudentInterests(data.student.interests);
+        }
+
+        // Load active opportunities catalog
+        const oppRes = await fetch('/api/opportunities');
+        if (oppRes.ok) {
+          setOpportunities(await oppRes.json());
         }
       } catch (err: any) {
         console.error('Student data fetch error:', err);
@@ -102,6 +111,12 @@ export const StudentDashboard: React.FC = () => {
     ? Math.round((presentCount / recordedAttendance.length) * 100)
     : null;
 
+  // Average marks calculation for scholarship conditions
+  const evaluatedMarks = marks.filter((m) => m.obtainedMarks !== null && m.maxMarks > 0);
+  const totalObtained = evaluatedMarks.reduce((sum, m) => sum + (m.obtainedMarks || 0), 0);
+  const totalMax = evaluatedMarks.reduce((sum, m) => sum + m.maxMarks, 0);
+  const averageMarksPercentage = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : null;
+
   if (loading) {
     return (
       <div className="main-content" style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--color-text-muted)' }}>
@@ -134,6 +149,15 @@ export const StudentDashboard: React.FC = () => {
           onClick={() => setActiveTab('overview')}
         >
           Profile Overview
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'recommendations' ? 'active' : ''}`}
+          onClick={() => setActiveTab('recommendations')}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Sparkles size={16} /> Recommended Opportunities ({opportunities.length})
+          </span>
         </button>
         <button
           type="button"
@@ -370,10 +394,21 @@ export const StudentDashboard: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Location Preference */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
-                    <MapPin size={15} style={{ color: 'var(--color-info)' }} />
-                    <span>Preferred Area / City: <strong>{studentInterests.preferredCity || 'Bengaluru'}</strong></span>
+                  {/* Location Preference & Recommendations Quick Link */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid var(--color-border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                      <MapPin size={15} style={{ color: 'var(--color-info)' }} />
+                      <span>Preferred Area / City: <strong>{studentInterests.preferredCity || 'Bengaluru'}</strong></span>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={() => setActiveTab('recommendations')}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                    >
+                      <Sparkles size={14} /> View Recommendations <ArrowRight size={14} />
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -449,6 +484,27 @@ export const StudentDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Tab: Recommended Opportunities */}
+      {activeTab === 'recommendations' && profile && (
+        <RecommendationsTab
+          student={{
+            usn: profile.usn || '',
+            uid: profile.uid,
+            name: profile.name,
+            email: profile.email,
+            department: profile.department || '',
+            year: profile.year || 3,
+            section: profile.section || '',
+            status: profile.status,
+            interests: studentInterests || undefined,
+          }}
+          interests={studentInterests}
+          opportunities={opportunities}
+          averageMarksPercentage={averageMarksPercentage}
+          onOpenInterestsModal={() => setIsInterestsModalOpen(true)}
+        />
       )}
 
       {/* Tab: Enrolled Courses */}

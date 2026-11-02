@@ -86,6 +86,16 @@ function canWriteAssignment(
   return false;
 }
 
+function canReadOpportunity(user: UserContext | null): boolean {
+  if (!user || user.status !== 'active') return false;
+  return true;
+}
+
+function canWriteOpportunity(user: UserContext | null): boolean {
+  if (!user || user.status !== 'active') return false;
+  return user.role === 'admin';
+}
+
 describe('Firestore Security Rules Permissions Matrix', () => {
   const adminUser: UserContext = {
     uid: 'admin-1',
@@ -235,7 +245,27 @@ describe('Firestore Security Rules Permissions Matrix', () => {
     });
   });
 
-  describe('6. Course Catalog & Natural Faculty Directory Verification', () => {
+  describe('6. Opportunity & Events Catalog Permissions', () => {
+    it('allows active students, faculty, and admin to read opportunities', () => {
+      expect(canReadOpportunity(studentAiml3A)).toBe(true);
+      expect(canReadOpportunity(facultyAimlA)).toBe(true);
+      expect(canReadOpportunity(adminUser)).toBe(true);
+    });
+
+    it('denies unauthenticated and disabled users from reading opportunities', () => {
+      expect(canReadOpportunity(null)).toBe(false);
+      expect(canReadOpportunity(disabledStudent)).toBe(false);
+    });
+
+    it('allows only admin to create, edit, or delete opportunities', () => {
+      expect(canWriteOpportunity(adminUser)).toBe(true);
+      expect(canWriteOpportunity(studentAiml3A)).toBe(false);
+      expect(canWriteOpportunity(facultyAimlA)).toBe(false);
+      expect(canWriteOpportunity(null)).toBe(false);
+    });
+  });
+
+  describe('7. Course Catalog & Natural Faculty Directory Verification', () => {
     it('confirms there are exactly eight active course records', () => {
       expect(DEMO_COURSES).toHaveLength(8);
     });

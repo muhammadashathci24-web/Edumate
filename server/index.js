@@ -12,6 +12,7 @@ import {
   INITIAL_ASSIGNMENTS,
   INITIAL_ATTENDANCE,
   INITIAL_MARKS,
+  INITIAL_OPPORTUNITIES,
   DEMO_PASSWORD,
 } from './seedData.js';
 
@@ -32,6 +33,7 @@ const mockStore = {
   assignments: new Map(),
   attendance: new Map(),
   marks: new Map(),
+  opportunities: new Map(),
   sectionsConfig: { ...INITIAL_SECTIONS_CONFIG },
 };
 
@@ -72,7 +74,12 @@ function seedInMemoryStore() {
     mockStore.marks.set(m.id, { ...m });
   }
 
-  console.log(`[Seed] In-memory store seeded: 1 admin, ${DEMO_FACULTY.length} faculty, ${DEMO_COURSES.length} courses, ${DEMO_STUDENTS.length} students (AIML Year 3 sections A, B, C)`);
+  // Opportunities
+  for (const opp of INITIAL_OPPORTUNITIES) {
+    mockStore.opportunities.set(opp.id, { ...opp });
+  }
+
+  console.log(`[Seed] In-memory store seeded: 1 admin, ${DEMO_FACULTY.length} faculty, ${DEMO_COURSES.length} courses, ${DEMO_STUDENTS.length} students, ${INITIAL_OPPORTUNITIES.length} opportunities (AIML Year 3 sections A, B, C)`);
 }
 
 // Seed on startup
@@ -186,6 +193,203 @@ app.get('/api/courses', (req, res) => {
       res.json(list);
     })
     .catch(err => res.status(500).json({ error: err.message }));
+});
+
+// ==========================================
+// OPPORTUNITIES & EVENT CATALOG ENDPOINTS
+// ==========================================
+
+// Get Opportunities (Public / Student active catalog or Admin full view)
+app.get('/api/opportunities', async (req, res) => {
+  const { all, category, search } = req.query;
+  const showAll = all === 'true';
+
+  if (isMock) {
+    let list = Array.from(mockStore.opportunities.values());
+    if (!showAll) {
+      list = list.filter(o => o.isActive);
+    }
+    if (category && category !== 'ALL') {
+      list = list.filter(o => o.category === category);
+    }
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(o =>
+        (o.title && o.title.toLowerCase().includes(q)) ||
+        (o.description && o.description.toLowerCase().includes(q)) ||
+        (o.city && o.city.toLowerCase().includes(q)) ||
+        (o.interestTags && o.interestTags.some(t => t.toLowerCase().includes(q))) ||
+        (o.subcategoryTags && o.subcategoryTags.some(t => t.toLowerCase().includes(q)))
+      );
+    }
+    return res.json(list);
+  }
+
+  try {
+    let query = db.collection('opportunities');
+    if (!showAll) {
+      query = query.where('isActive', '==', true);
+    }
+    if (category && category !== 'ALL') {
+      query = query.where('category', '==', category);
+    }
+    const snapshot = await query.get();
+    let list = snapshot.docs.map(d => d.data());
+    if (search) {
+      const q = String(search).toLowerCase();
+      list = list.filter(o =>
+        (o.title && o.title.toLowerCase().includes(q)) ||
+        (o.description && o.description.toLowerCase().includes(q)) ||
+        (o.city && o.city.toLowerCase().includes(q))
+      );
+    }
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create Opportunity (Admin Only)
+app.post('/api/opportunities', requireAdmin, async (req, res) => {
+  const {
+    title,
+    category,
+    description,
+    interestTags,
+    subcategoryTags,
+    venue,
+    city,
+    area,
+    eventDate,
+    registrationDeadline,
+    registrationLink,
+    eligibleDepartments,
+    eligibleYears,
+    eligibleSections,
+    scholarshipDetails,
+    isActive,
+  } = req.body;
+
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'Opportunity title is required.' });
+  }
+  if (!category) {
+    return res.status(400).json({ error: 'Category is required.' });
+  }
+  if (!description || !description.trim()) {
+    return res.status(400).json({ error: 'Description is required.' });
+  }
+
+  const id = 'opp-' + crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const newOpportunity = {
+    id,
+    title: title.trim(),
+    category,
+    description: description.trim(),
+    interestTags: Array.isArray(interestTags) ? interestTags : [category],
+    subcategoryTags: Array.isArray(subcategoryTags) ? subcategoryTags : [],
+    venue: venue ? venue.trim() : 'Campus',
+    city: city ? city.trim() : 'Bengaluru',
+    area: area ? area.trim() : '',
+    eventDate: eventDate || now,
+    registrationDeadline: registrationDeadline || eventDate || now,
+    registrationLink: registrationLink ? registrationLink.trim() : '',
+    eligibleDepartments: Array.isArray(eligibleDepartments) && eligibleDepartments.length > 0 ? eligibleDepartments : ['ALL'],
+    eligibleYears: Array.isArray(eligibleYears) && eligibleYears.length > 0 ? eligibleYears.map(Number) : [1, 2, 3, 4],
+    eligibleSections: Array.isArray(eligibleSections) && eligibleSections.length > 0 ? eligibleSections : ['ALL'],
+    scholarshipDetails: category === 'Scholarships' && scholarshipDetails ? scholarshipDetails : undefined,
+    isActive: isActive !== undefined ? Boolean(isActive) : true,
+    createdByAdminId: req.currentUser?.uid || 'admin',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (isMock) {
+    mockStore.opportunities.set(id, newOpportunity);
+    return res.status(201).json({ success: true, opportunity: newOpportunity });
+  }
+
+  try {
+    await db.collection('opportunities').doc(id).set(newOpportunity);
+    res.status(201).json({ success: true, opportunity: newOpportunity });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create opportunity: ' + err.message });
+  }
+});
+
+// Update Opportunity (Admin Only)
+app.put('/api/opportunities/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+
+  const now = new Date().toISOString();
+
+  if (isMock) {
+    const existing = mockStore.opportunities.get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Opportunity not found.' });
+    }
+    const updated = {
+      ...existing,
+      ...updates,
+      id,
+      updatedAt: now,
+    };
+    mockStore.opportunities.set(id, updated);
+    return res.json({ success: true, opportunity: updated });
+  }
+
+  try {
+    const docRef = db.collection('opportunities').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Opportunity not found.' });
+    }
+    const updatedData = {
+      ...updates,
+      id,
+      updatedAt: now,
+    };
+    await docRef.set(updatedData, { merge: true });
+    res.json({ success: true, opportunity: { ...doc.data(), ...updatedData } });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update opportunity: ' + err.message });
+  }
+});
+
+// Toggle Active / Inactive Status (Admin Only)
+app.patch('/api/opportunities/:id/status', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { isActive } = req.body;
+
+  if (typeof isActive !== 'boolean') {
+    return res.status(400).json({ error: 'isActive must be a boolean.' });
+  }
+
+  if (isMock) {
+    const existing = mockStore.opportunities.get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Opportunity not found.' });
+    }
+    existing.isActive = isActive;
+    existing.updatedAt = new Date().toISOString();
+    mockStore.opportunities.set(id, existing);
+    return res.json({ success: true, opportunity: existing });
+  }
+
+  try {
+    const docRef = db.collection('opportunities').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Opportunity not found.' });
+    }
+    await docRef.update({ isActive, updatedAt: new Date().toISOString() });
+    res.json({ success: true, opportunity: { ...doc.data(), isActive } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Config: Update Sections (Admin only)

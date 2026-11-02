@@ -134,5 +134,12 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
+
+    // 8. Opportunities & Events Catalog
+    // Authenticated users (students, faculty, admins) can view opportunities; only admins can create, update, or delete
+    match /opportunities/{opportunityId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
   }
 }
