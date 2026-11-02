@@ -202,4 +202,27 @@ describe('Personalized Opportunity & Event Recommendations Engine', () => {
     expect(ineligibleCheck.isEligible).toBe(false);
     expect(ineligibleCheck.reason).toContain('minimum 75%');
   });
+
+  describe('Sample Student Records & Interests Integrity', () => {
+    it('verifies all 30 sample students have stable assigned interests for local dev', async () => {
+      const { DEMO_STUDENTS } = await import('../server/seedData.js');
+      expect(DEMO_STUDENTS).toHaveLength(30);
+
+      const allCategories = new Set<string>();
+      DEMO_STUDENTS.forEach((student) => {
+        expect(student.interests).toBeDefined();
+        expect(student.interests?.categories.length).toBeGreaterThan(0);
+        expect(student.interests?.subcategories.length).toBeGreaterThan(0);
+        expect(student.interests?.preferredCity).toBeTruthy();
+        student.interests?.categories.forEach((cat) => allCategories.add(cat));
+      });
+
+      // Confirms all core domains are represented
+      expect(allCategories.has('Sports')).toBe(true);
+      expect(allCategories.has('Coding and technology')).toBe(true);
+      expect(allCategories.has('Cultural and arts activities')).toBe(true);
+      expect(allCategories.has('Academic competitions and workshops')).toBe(true);
+      expect(allCategories.has('Entrepreneurship and social impact')).toBe(true);
+    });
+  });
 });

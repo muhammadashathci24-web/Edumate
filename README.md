@@ -13,6 +13,7 @@ The application provides three distinct role-based interfaces with strict securi
 - **Class Assignments**: View active assignments published by faculty for the student's assigned class section, including due dates and guidelines.
 - **Attendance Records**: View session-by-session attendance history and cumulative attendance percentage.
 - **Marks & Evaluations**: View internal assessment scores, maximum marks, and distinction/performance badges.
+- **Interests & Personalized Recommendations**: Complete an editable interest profile questionnaire (sports, coding, arts, academic competitions, social impact) and receive explainable upcoming event, hackathon, workshop, and scholarship recommendations with transparent "Why this matches" criteria.
 - **Strict Read-Only Enforcement**: Students cannot modify their USN, role, attendance, marks, or assignment records.
 
 ### 2. Faculty Portal
@@ -25,6 +26,7 @@ The application provides three distinct role-based interfaces with strict securi
 
 ### 3. Administrative Dashboard
 - **Directory Management**: Directory of all enrolled students and faculty members with search and multi-attribute filters (Department, Year, Section, Status).
+- **Opportunity & Events Catalog**: Curate, add, edit, and activate/deactivate campus events, hackathons, sports meets, workshops, and scholarships with department/year eligibility controls.
 - **Secure Account Provisioning**: Server-side user creation via Firebase Admin SDK. Browser code never creates Auth users directly or assigns roles.
 - **USN Uniqueness Enforcement**: Normalized USN (uppercase, trimmed) enforced in database transactions to prevent duplicates.
 - **Class Section Settings**: Dynamic configuration of available section letters per department and year (years 1–4, departments: AIML, CSE, IS, MECH, EC, Robotics).
@@ -154,9 +156,63 @@ To bootstrap an administrator account in a production Firebase environment:
 
 ---
 
+---
+
+## Personalized Opportunities & Event Recommendations
+
+EduMate includes a transparent, explainable recommendation engine connecting students with upcoming extracurricular and academic opportunities.
+
+### 1. Guided Student Interest Questionnaire
+Students can customize their interest profile directly from their **Student Dashboard**:
+- **Main Interest Areas**: Sports, Coding & Technology, Cultural & Arts, Academic Competitions & Workshops, Entrepreneurship & Social Impact, and Other.
+- **Dynamic Subcategories**:
+  - *Sports*: Cricket, football, volleyball, basketball, badminton, athletics, kabaddi, table tennis, other.
+  - *Coding & Technology*: Web development, AI & machine learning, app development, cybersecurity, robotics, competitive programming, hackathons, other.
+  - *Cultural & Arts Activities*: Dance, music, drama, photography, drawing & painting, debate & public speaking, literature, quiz, other.
+  - *Academic Competitions & Workshops*: Project exhibitions, paper presentations, technical workshops, quizzes, other.
+  - *Entrepreneurship & Social Impact*: Entrepreneurship, volunteering, social-impact events, other.
+  - *Custom Interests*: Free-text tags for specialized passions (e.g. drone racing, autonomous robotics, edtech).
+- **Location Preference**: Option to select a preferred city (Bengaluru, Mysuru, Mangaluru, etc.) or optionally detect nearest city via browser geolocation permissions without storing exact GPS coordinates.
+- **Flexibility**: The questionnaire can be skipped or updated at any time without blocking other app features.
+
+### 2. Transparent Content-Based Recommendation Matching
+Recommendations are computed using an explainable matching algorithm:
+1. **Filtering**:
+   - Excludes inactive opportunities.
+   - Excludes events with past registration deadlines or event dates.
+   - Enforces department and class year eligibility (e.g. opportunities scoped to AIML Year 3).
+   - Validates scholarship prerequisites (e.g. 75%+ assessment marks percentage requirement).
+2. **Scoring & Ranking**:
+   - **Primary (+10 to +15 pts)**: Matching categories, subcategories, and custom interest tags.
+   - **Location Relevance (+6 to +12 pts)**: In-person events matching student's preferred city or on-campus/online events.
+   - **Urgency Tie-Breaker (+3 to +5 pts)**: Boosts opportunities with registration deadlines closing within 7–21 days.
+3. **Explainable "Why this matches" Criteria**:
+   Every card displays human-readable reasons (e.g. *"Matches your topics: AI & Machine Learning, Hackathons"*, *"Happening in your preferred city: Bengaluru"*, *"Eligible for AIML Year 3"*).
+
+### 3. Administrator Opportunity Catalog
+Administrators have access to a dedicated **Opportunities & Events Catalog** tab:
+- Add new opportunities with category, description, tags, venue, city, event date, registration deadline, and external link.
+- Configure target eligibility (all departments vs specific branches; target academic years).
+- For scholarships: specify award amounts and minimum academic performance thresholds.
+- Toggle active/inactive status to instantly control visibility.
+
+---
+
+## 30 Fictional Sample Student Records & Stable Seed Interests
+
+For development and evaluation, the database includes **exactly 30 student records** across third-year AIML sections A, B, and C:
+- **10 students in Section A** (`1EM22AI001` – `1EM22AI010`)
+- **10 students in Section B** (`1EM22AI011` – `1EM22AI020`)
+- **10 students in Section C** (`1EM22AI021` – `1EM22AI030`)
+
+**Stable Local Interests**:
+In local/mock mode, each sample student is initialized with a stable, varied combination of interests across sports, coding, cultural, academic workshops, entrepreneurship, and scholarships. Real student accounts created in production Cloud Firestore start with empty interests until chosen by the student.
+
+---
+
 ## Automated Verification & Testing
 
-Run the security rules and access boundary test suite:
+Run the test suite verifying Firestore rules, security boundaries, and recommendation matching:
 ```bash
 npm run test
 ```
@@ -175,47 +231,54 @@ Edumate/
 ├── server/
 │   ├── index.js            # Express server & Firebase Admin SDK endpoints
 │   ├── firebaseAdmin.js    # Firebase Admin SDK initialization & fallback engine
-│   ├── seedData.js         # 30 fictional student records, demo faculty & admin
+│   ├── seedData.js         # 30 sample students with stable interests, sample opportunities
 │   └── seed.js             # Standalone seed runner
 ├── src/
 │   ├── components/
-│   │   ├── Navbar.tsx      # Persistent user identity, role badge, sign out
-│   │   ├── Alert.tsx       # Accessible feedback notifications
-│   │   └── Modal.tsx       # Keyboard-accessible modal dialogs
+│   │   ├── Navbar.tsx                          # Persistent user identity, role badge, sign out
+│   │   ├── Alert.tsx                           # Accessible feedback notifications
+│   │   ├── Modal.tsx                           # Keyboard-accessible modal dialogs
+│   │   └── InterestsQuestionnaireModal.tsx     # Multi-step guided interest & location questionnaire
 │   ├── contexts/
-│   │   └── AuthContext.tsx # Authentication, role resolution, status checks
+│   │   └── AuthContext.tsx                     # Authentication, role resolution, status checks
 │   ├── pages/
-│   │   ├── SignInPage.tsx  # Sign-in interface (no self-registration)
+│   │   ├── SignInPage.tsx                      # Sign-in interface (no self-registration)
 │   │   ├── admin/
-│   │   │   ├── AdminDashboard.tsx       # Student & faculty directory, filters
-│   │   │   ├── AddStudentModal.tsx      # Enrollment with USN normalization
-│   │   │   ├── EditStudentModal.tsx     # Student updates (USN immutable)
-│   │   │   ├── AddFacultyModal.tsx      # Faculty creation & class assignment
-│   │   │   ├── EditFacultyModal.tsx     # Faculty updates
-│   │   │   └── ManageSectionsModal.tsx  # Section configuration
+│   │   │   ├── AdminDashboard.tsx              # Student/faculty directory & opportunity catalog
+│   │   │   ├── OpportunityFormModal.tsx        # Add / Edit opportunity modal dialog
+│   │   │   ├── AddStudentModal.tsx             # Enrollment with USN normalization
+│   │   │   ├── EditStudentModal.tsx            # Student updates (USN immutable)
+│   │   │   ├── AddFacultyModal.tsx             # Faculty creation & class assignment
+│   │   │   ├── EditFacultyModal.tsx            # Faculty updates
+│   │   │   └── ManageSectionsModal.tsx         # Section configuration
 │   │   ├── faculty/
-│   │   │   └── FacultyDashboard.tsx     # Attendance, marks, class assignments
+│   │   │   └── FacultyDashboard.tsx            # Attendance, marks, class assignments
 │   │   └── student/
-│   │       ├── StudentDashboard.tsx     # Profile, attendance, marks, assignments
-│   │       └── EmptyState.tsx           # Empty state illustrations
+│   │       ├── StudentDashboard.tsx            # Profile, interests, marks, assignments
+│   │       ├── RecommendationsTab.tsx          # Personalized opportunity & event recommendation cards
+│   │       └── EmptyState.tsx                  # Empty state illustrations
 │   ├── lib/
-│   │   ├── firebase.ts     # Client Firebase SDK configuration
-│   │   └── types.ts        # TypeScript data definitions
-│   ├── App.tsx             # Role-based route guard
-│   ├── main.tsx            # React entry
-│   └── index.css           # Vanilla CSS design system with reduced-motion support
+│   │   ├── firebase.ts                         # Client Firebase SDK configuration
+│   │   ├── interestConstants.ts                # Canonical categories, subcategories, popular cities
+│   │   ├── recommendations.ts                  # Content-based recommendation & eligibility engine
+│   │   └── types.ts                            # TypeScript data definitions
+│   ├── App.tsx                                 # Role-based route guard
+│   ├── main.tsx                                # React entry
+│   └── index.css                               # Vanilla CSS design system with reduced-motion support
 ├── test/
-│   └── rules.test.ts       # 18 security rules permissions tests
-├── firestore.rules         # Production Firestore Security Rules
-├── firebase.json           # Firebase CLI and emulator configuration
-├── .env.example            # Environment variables template
-└── package.json            # Project manifest
+│   ├── rules.test.ts                           # Security rules permissions tests
+│   └── recommendations.test.ts                 # Recommendation engine & eligibility tests
+├── firestore.rules                             # Production Firestore Security Rules
+├── firebase.json                               # Firebase CLI and emulator configuration
+├── .env.example                                # Environment variables template
+└── package.json                                # Project manifest
 ```
 
 ---
 
-## Demo-Only Limitations & Production Notes
+## Important Deployment & GitHub Notes
 
-- **Offline / Mock Fallback Engine**: If Firebase credentials are not yet set in `.env.local`, EduMate runs using an in-memory database initialized with the 30 fictional sample records. When connected to a live Firebase project, it automatically uses Cloud Firestore and Firebase Auth.
-- **Demo Passwords**: All sample passwords (`Demo@12345`) are documented strictly for local development and must never be deployed to production.
-- **Email Service**: In production, connect an SMTP service or Firebase Extensions (e.g. *Trigger Email with SendGrid*) to deliver the generated password-reset links to newly enrolled students and faculty.
+- **GitHub Collaborators**: If this repository is configured as private on GitHub, team members or collaborators will need to be granted access via **Repository Settings > Collaborators** to clone, view, or pull changes.
+- **Zero Secrets Committed**: Firebase service-account private keys, passwords, and sensitive production keys must never be committed to Git. All configuration is read via environment variables (`.env.local`).
+- **Live Database Safety**: In live Firebase production, the `seedInMemoryStore()` seeds local/mock memory only and will not overwrite live Firestore student records.
+- **Cloud Firestore Indexes**: In production Firestore, simple equality and range queries on `opportunities` (such as `isActive == true`) use automatic single-field indexes. No complex custom composite index is required.

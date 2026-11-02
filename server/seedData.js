@@ -214,6 +214,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Sports'],
+      subcategories: ['AI and machine learning', 'hackathons', 'badminton'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI002',
@@ -226,6 +232,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities', 'Academic competitions and workshops'],
+      subcategories: ['music', 'dance', 'technical workshops'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI003',
@@ -238,6 +250,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Sports', 'Entrepreneurship and social impact'],
+      subcategories: ['cricket', 'football', 'volunteering'],
+      preferredCity: 'Mysuru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI004',
@@ -250,6 +268,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Scholarships'],
+      subcategories: ['web development', 'app development', 'hackathons'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI005',
@@ -262,6 +286,13 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Academic competitions and workshops', 'Coding and technology', 'Other'],
+      subcategories: ['project exhibitions', 'paper presentations', 'robotics'],
+      customInterests: ['autonomous robotics'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI006',
@@ -274,6 +305,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities', 'Entrepreneurship and social impact'],
+      subcategories: ['photography', 'drawing and painting', 'social-impact events'],
+      preferredCity: 'Mangaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI007',
@@ -286,6 +323,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Sports'],
+      subcategories: ['volleyball', 'basketball', 'table tennis'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI008',
@@ -298,6 +341,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Academic competitions and workshops'],
+      subcategories: ['cybersecurity', 'competitive programming', 'quizzes'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI009',
@@ -310,6 +359,13 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Entrepreneurship and social impact', 'Coding and technology', 'Other'],
+      subcategories: ['entrepreneurship', 'app development'],
+      customInterests: ['edtech ventures'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI010',
@@ -322,6 +378,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities', 'Academic competitions and workshops'],
+      subcategories: ['drama', 'debate and public speaking', 'paper presentations'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
 
   // Section B (10 students)
@@ -336,6 +398,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Sports', 'Coding and technology'],
+      subcategories: ['football', 'athletics', 'web development'],
+      preferredCity: 'Hubballi-Dharwad',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI012',
@@ -348,6 +416,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities', 'Academic competitions and workshops'],
+      subcategories: ['dance', 'music', 'technical workshops'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI013',
@@ -360,6 +434,13 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Other'],
+      subcategories: ['AI and machine learning', 'competitive programming'],
+      customInterests: ['deep learning ethics'],
+      preferredCity: 'Mysuru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI014',
@@ -372,6 +453,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Entrepreneurship and social impact', 'Cultural and arts activities'],
+      subcategories: ['volunteering', 'social-impact events', 'literature'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI015',
@@ -384,6 +471,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Sports', 'Academic competitions and workshops'],
+      subcategories: ['cricket', 'badminton', 'quizzes'],
+      preferredCity: 'Belagavi',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI016',
@@ -396,6 +489,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Scholarships'],
+      subcategories: ['cybersecurity', 'app development'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI017',
@@ -408,6 +507,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Academic competitions and workshops', 'Coding and technology'],
+      subcategories: ['project exhibitions', 'technical workshops', 'robotics'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI018',
@@ -420,6 +525,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities'],
+      subcategories: ['photography', 'quiz', 'debate and public speaking'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI019',
@@ -432,6 +543,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Sports', 'Entrepreneurship and social impact'],
+      subcategories: ['table tennis', 'basketball', 'entrepreneurship'],
+      preferredCity: 'Mangaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI020',
@@ -444,6 +561,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Cultural and arts activities'],
+      subcategories: ['web development', 'hackathons', 'music'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
 
   // Section C (10 students)
@@ -458,6 +581,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Sports', 'Academic competitions and workshops'],
+      subcategories: ['athletics', 'kabaddi', 'technical workshops'],
+      preferredCity: 'Kalaburagi',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI022',
@@ -470,6 +599,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities', 'Entrepreneurship and social impact'],
+      subcategories: ['drawing and painting', 'literature', 'volunteering'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI023',
@@ -482,6 +617,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Entrepreneurship and social impact'],
+      subcategories: ['AI and machine learning', 'hackathons', 'entrepreneurship'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI024',
@@ -494,6 +635,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Academic competitions and workshops', 'Scholarships'],
+      subcategories: ['paper presentations', 'project exhibitions'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI025',
@@ -506,6 +653,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities', 'Sports'],
+      subcategories: ['drama', 'dance', 'badminton'],
+      preferredCity: 'Mysuru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI026',
@@ -518,6 +671,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Sports', 'Coding and technology'],
+      subcategories: ['cricket', 'volleyball', 'app development'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI027',
@@ -530,6 +689,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Coding and technology', 'Academic competitions and workshops'],
+      subcategories: ['competitive programming', 'web development', 'quizzes'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI028',
@@ -542,6 +707,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Entrepreneurship and social impact', 'Sports'],
+      subcategories: ['social-impact events', 'volunteering', 'athletics'],
+      preferredCity: 'Hubballi-Dharwad',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI029',
@@ -554,6 +725,12 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Cultural and arts activities', 'Coding and technology'],
+      subcategories: ['music', 'photography', 'AI and machine learning'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
   {
     usn: '1EM22AI030',
@@ -566,6 +743,13 @@ export const DEMO_STUDENTS = [
     role: 'student',
     status: 'active',
     isSampleData: true,
+    interests: {
+      categories: ['Academic competitions and workshops', 'Coding and technology', 'Other'],
+      subcategories: ['project exhibitions', 'technical workshops', 'cybersecurity'],
+      customInterests: ['cloud security'],
+      preferredCity: 'Bengaluru',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    },
   },
 ];
 
