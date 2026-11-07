@@ -188,7 +188,7 @@ app.get('/api/courses', (req, res) => {
   if (year) query = query.where('year', '==', Number(year));
   query.get()
     .then(snapshot => {
-      let list = snapshot.docs.map(d => d.data());
+      let list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       if (section) list = list.filter(c => c.sections && c.sections.includes(section));
       res.json(list);
     })
@@ -198,6 +198,45 @@ app.get('/api/courses', (req, res) => {
 // ==========================================
 // OPPORTUNITIES & EVENT CATALOG ENDPOINTS
 // ==========================================
+
+// Real-time SSE Clients for live event synchronization
+const opportunitySseClients = new Set();
+
+export function broadcastOpportunityChange(payload) {
+  const data = JSON.stringify(payload);
+  for (const client of opportunitySseClients) {
+    try {
+      client.write(`data: ${data}\n\n`);
+    } catch {
+      opportunitySseClients.delete(client);
+    }
+  }
+}
+
+// Real-time Event Stream for opportunities (SSE)
+app.get('/api/opportunities/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  opportunitySseClients.add(res);
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED' })}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keep-alive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+      opportunitySseClients.delete(res);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    opportunitySseClients.delete(res);
+  });
+});
 
 // Get Opportunities (Public / Student active catalog or Admin full view)
 app.get('/api/opportunities', async (req, res) => {
@@ -234,7 +273,7 @@ app.get('/api/opportunities', async (req, res) => {
       query = query.where('category', '==', category);
     }
     const snapshot = await query.get();
-    let list = snapshot.docs.map(d => d.data());
+    let list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     if (search) {
       const q = String(search).toLowerCase();
       list = list.filter(o =>
@@ -308,11 +347,13 @@ app.post('/api/opportunities', requireAdmin, async (req, res) => {
 
   if (isMock) {
     mockStore.opportunities.set(id, newOpportunity);
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'create', id, opportunity: newOpportunity });
     return res.status(201).json({ success: true, opportunity: newOpportunity });
   }
 
   try {
     await db.collection('opportunities').doc(id).set(newOpportunity);
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'create', id, opportunity: newOpportunity });
     res.status(201).json({ success: true, opportunity: newOpportunity });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create opportunity: ' + err.message });
@@ -338,6 +379,7 @@ app.put('/api/opportunities/:id', requireAdmin, async (req, res) => {
       updatedAt: now,
     };
     mockStore.opportunities.set(id, updated);
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'update', id, opportunity: updated });
     return res.json({ success: true, opportunity: updated });
   }
 
@@ -353,7 +395,9 @@ app.put('/api/opportunities/:id', requireAdmin, async (req, res) => {
       updatedAt: now,
     };
     await docRef.set(updatedData, { merge: true });
-    res.json({ success: true, opportunity: { ...doc.data(), ...updatedData } });
+    const fullUpdated = { ...doc.data(), ...updatedData };
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'update', id, opportunity: fullUpdated });
+    res.json({ success: true, opportunity: fullUpdated });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update opportunity: ' + err.message });
   }
@@ -376,6 +420,7 @@ app.patch('/api/opportunities/:id/status', requireAdmin, async (req, res) => {
     existing.isActive = isActive;
     existing.updatedAt = new Date().toISOString();
     mockStore.opportunities.set(id, existing);
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'status', id, isActive });
     return res.json({ success: true, opportunity: existing });
   }
 
@@ -386,7 +431,35 @@ app.patch('/api/opportunities/:id/status', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Opportunity not found.' });
     }
     await docRef.update({ isActive, updatedAt: new Date().toISOString() });
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'status', id, isActive });
     res.json({ success: true, opportunity: { ...doc.data(), isActive } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Opportunity (Admin Only)
+app.delete('/api/opportunities/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  if (isMock) {
+    if (!mockStore.opportunities.has(id)) {
+      return res.status(404).json({ error: 'Opportunity not found.' });
+    }
+    mockStore.opportunities.delete(id);
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'delete', id });
+    return res.json({ success: true, message: 'Opportunity deleted successfully.' });
+  }
+
+  try {
+    const docRef = db.collection('opportunities').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Opportunity not found.' });
+    }
+    await docRef.delete();
+    broadcastOpportunityChange({ type: 'OPPORTUNITIES_CHANGED', action: 'delete', id });
+    res.json({ success: true, message: 'Opportunity deleted successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

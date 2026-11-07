@@ -21,7 +21,10 @@ import {
   Sparkles,
   Plus,
   ExternalLink,
+  Trash2,
 } from 'lucide-react';
+import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db, auth } from '../../lib/firebase';
 
 export const AdminDashboard: React.FC = () => {
   const { token } = useAuth();
@@ -166,6 +169,25 @@ export const AdminDashboard: React.FC = () => {
         throw new Error(err.error || 'Failed to update opportunity status.');
       }
 
+      // Sync directly with Firestore if client is active
+      if (db && auth?.currentUser) {
+        try {
+          const oppDocRef = doc(db, 'opportunities', id);
+          await updateDoc(oppDocRef, { isActive: nextStatus, updatedAt: new Date().toISOString() });
+        } catch (fbErr) {
+          console.warn('[Firestore] Admin sync status notice:', fbErr);
+        }
+      }
+
+      // Broadcast change to open tabs
+      try {
+        const channel = new BroadcastChannel('edumate_opportunities');
+        channel.postMessage({ type: 'OPPORTUNITIES_CHANGED', action: 'status', id, isActive: nextStatus });
+        channel.close();
+      } catch {
+        // ignore
+      }
+
       setOpportunities((prev) =>
         prev.map((o) => (o.id === id ? { ...o, isActive: nextStatus } : o))
       );
@@ -203,6 +225,25 @@ export const AdminDashboard: React.FC = () => {
       const result = await res.json();
       const savedOpp = result.opportunity;
 
+      // Sync directly with Firestore if client is active
+      if (db && auth?.currentUser) {
+        try {
+          const oppDocRef = doc(db, 'opportunities', savedOpp.id);
+          await setDoc(oppDocRef, savedOpp, { merge: true });
+        } catch (fbErr) {
+          console.warn('[Firestore] Admin direct save notice:', fbErr);
+        }
+      }
+
+      // Broadcast change to open tabs
+      try {
+        const channel = new BroadcastChannel('edumate_opportunities');
+        channel.postMessage({ type: 'OPPORTUNITIES_CHANGED', action: isEdit ? 'update' : 'create', id: savedOpp.id });
+        channel.close();
+      } catch {
+        // ignore
+      }
+
       if (isEdit) {
         setOpportunities((prev) => prev.map((o) => (o.id === savedOpp.id ? savedOpp : o)));
         setFeedback({ type: 'success', message: `Opportunity "${savedOpp.title}" updated successfully.` });
@@ -213,6 +254,50 @@ export const AdminDashboard: React.FC = () => {
     } catch (err: any) {
       setFeedback({ type: 'danger', message: err.message });
       throw err;
+    }
+  };
+
+  // Delete opportunity
+  const handleDeleteOpportunity = async (id: string, title: string) => {
+    if (!window.confirm(`Are you sure you want to delete the opportunity "${title}"?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/opportunities/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to delete opportunity.');
+      }
+
+      // Sync directly with Firestore if client is active
+      if (db && auth?.currentUser) {
+        try {
+          const oppDocRef = doc(db, 'opportunities', id);
+          await deleteDoc(oppDocRef);
+        } catch (fbErr) {
+          console.warn('[Firestore] Admin direct delete notice:', fbErr);
+        }
+      }
+
+      // Broadcast change to open tabs
+      try {
+        const channel = new BroadcastChannel('edumate_opportunities');
+        channel.postMessage({ type: 'OPPORTUNITIES_CHANGED', action: 'delete', id });
+        channel.close();
+      } catch {
+        // ignore
+      }
+
+      setOpportunities((prev) => prev.filter((o) => o.id !== id));
+      setFeedback({ type: 'success', message: `Opportunity "${title}" was deleted successfully.` });
+    } catch (err: any) {
+      setFeedback({ type: 'danger', message: err.message });
     }
   };
 
@@ -1135,6 +1220,14 @@ export const AdminDashboard: React.FC = () => {
                                 title={opp.isActive ? 'Deactivate Opportunity' : 'Activate Opportunity'}
                               >
                                 <Power size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-danger-outline"
+                                onClick={() => handleDeleteOpportunity(opp.id, opp.title)}
+                                title="Delete Opportunity"
+                              >
+                                <Trash2 size={13} />
                               </button>
                             </div>
                           </td>

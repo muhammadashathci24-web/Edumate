@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { InterestsQuestionnaireModal } from '../../components/InterestsQuestionnaireModal';
 import { RecommendationsTab } from './RecommendationsTab';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 interface AttendanceItem {
   id: string;
@@ -44,10 +46,120 @@ export const StudentDashboard: React.FC = () => {
   const [attendance, setAttendance] = useState<AttendanceItem[]>([]);
   const [marks, setMarks] = useState<MarkItem[]>([]);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [oppsLoading, setOppsLoading] = useState<boolean>(true);
+  const [oppsError, setOppsError] = useState<string | null>(null);
   const [studentInterests, setStudentInterests] = useState<StudentInterests | null>(profile?.interests || null);
   const [isInterestsModalOpen, setIsInterestsModalOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Real-time synchronization for active campus opportunities & events
+  useEffect(() => {
+    let isMounted = true;
+    let unsubscribeFirestore: (() => void) | null = null;
+    let bc: BroadcastChannel | null = null;
+    let eventSource: EventSource | null = null;
+
+    const fetchOpportunitiesFromApi = async () => {
+      try {
+        const oppRes = await fetch('/api/opportunities');
+        if (!oppRes.ok) {
+          throw new Error('Could not load opportunities catalog.');
+        }
+        const data = await oppRes.json();
+        if (isMounted) {
+          setOpportunities(data);
+          setOppsLoading(false);
+          setOppsError(null);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          console.error('[Opportunities] Fetch error:', err);
+          setOppsError(err.message || 'Failed to load opportunities.');
+          setOppsLoading(false);
+        }
+      }
+    };
+
+    // 1. Initial fetch from API to ensure instant population
+    fetchOpportunitiesFromApi();
+
+    // 2. Set up Firestore real-time listener if db is initialized
+    if (db) {
+      try {
+        const oppsCol = collection(db, 'opportunities');
+        const q = query(oppsCol, where('isActive', '==', true));
+        unsubscribeFirestore = onSnapshot(
+          q,
+          (snapshot) => {
+            if (!isMounted) return;
+            const liveOpps: Opportunity[] = [];
+            snapshot.forEach((docSnap) => {
+              liveOpps.push({ id: docSnap.id, ...(docSnap.data() as any) });
+            });
+            setOpportunities(liveOpps);
+            setOppsLoading(false);
+            setOppsError(null);
+          },
+          (err) => {
+            console.warn('[Firestore] Opportunities listener fallback:', err.message);
+            if (isMounted) {
+              fetchOpportunitiesFromApi();
+            }
+          }
+        );
+      } catch (err) {
+        console.warn('[Firestore] Error attaching snapshot listener:', err);
+      }
+    }
+
+    // 3. Cross-tab synchronization via BroadcastChannel
+    try {
+      bc = new BroadcastChannel('edumate_opportunities');
+      bc.onmessage = (event) => {
+        if (!isMounted) return;
+        if (event.data?.type === 'OPPORTUNITIES_CHANGED') {
+          fetchOpportunitiesFromApi();
+        }
+      };
+    } catch {
+      // Ignore if unsupported
+    }
+
+    // 4. Server-Sent Events (SSE) stream for backend real-time updates
+    try {
+      eventSource = new EventSource('/api/opportunities/stream');
+      eventSource.onmessage = (event) => {
+        if (!isMounted) return;
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload?.type === 'OPPORTUNITIES_CHANGED') {
+            fetchOpportunitiesFromApi();
+          }
+        } catch {
+          fetchOpportunitiesFromApi();
+        }
+      };
+      eventSource.onerror = () => {
+        // SSE auto-reconnects
+      };
+    } catch {
+      // Ignore if unsupported
+    }
+
+    return () => {
+      isMounted = false;
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+      }
+      if (bc) {
+        bc.close();
+      }
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!profile?.usn) {
@@ -70,12 +182,6 @@ export const StudentDashboard: React.FC = () => {
         setMarks(data.marks || []);
         if (data.student?.interests) {
           setStudentInterests(data.student.interests);
-        }
-
-        // Load active opportunities catalog
-        const oppRes = await fetch('/api/opportunities');
-        if (oppRes.ok) {
-          setOpportunities(await oppRes.json());
         }
       } catch (err: any) {
         console.error('Student data fetch error:', err);
@@ -523,6 +629,8 @@ export const StudentDashboard: React.FC = () => {
           opportunities={opportunities}
           averageMarksPercentage={averageMarksPercentage}
           onOpenInterestsModal={() => setIsInterestsModalOpen(true)}
+          isLoading={oppsLoading}
+          error={oppsError}
         />
       )}
 

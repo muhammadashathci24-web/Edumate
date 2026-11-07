@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Opportunity, Student, StudentInterests, RecommendationMatch } from '../../lib/types';
 import { matchOpportunities, isOpportunityExpired, getDaysRemaining } from '../../lib/recommendations';
+import { Alert } from '../../components/Alert';
 import {
   Sparkles,
   MapPin,
@@ -21,6 +22,8 @@ interface RecommendationsTabProps {
   opportunities: Opportunity[];
   averageMarksPercentage?: number | null;
   onOpenInterestsModal: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
 export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
@@ -29,6 +32,8 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
   opportunities,
   averageMarksPercentage,
   onOpenInterestsModal,
+  isLoading,
+  error,
 }) => {
   // Navigation view: 'RECOMMENDED' (default) or 'EXPLORE_ALL'
   const [activeView, setActiveView] = useState<'RECOMMENDED' | 'EXPLORE_ALL'>('RECOMMENDED');
@@ -128,6 +133,14 @@ export const RecommendationsTab: React.FC<RecommendationsTabProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {error && <Alert type="danger" message={error} />}
+
+      {isLoading && opportunities.length === 0 && (
+        <div className="card" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+          <p style={{ fontWeight: 600, margin: 0 }}>Syncing active opportunities catalog...</p>
+        </div>
+      )}
+
       {/* Intro Header Card */}
       <div className="card">
         <div className="card-body" style={{ padding: '1.25rem' }}>

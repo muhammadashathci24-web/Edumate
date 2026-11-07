@@ -118,16 +118,24 @@ export const OpportunityFormModal: React.FC<OpportunityFormModalProps> = ({
     setError(null);
 
     try {
-      const parsedTags = tagsInput
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
+      const parsedTags = Array.from(
+        new Set(
+          tagsInput
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+        )
+      );
+
+      const interestTags = Array.from(
+        new Set([category, ...parsedTags].filter(Boolean))
+      );
 
       const payload: Partial<Opportunity> = {
         title: title.trim(),
         category,
         description: description.trim(),
-        interestTags: [category, ...parsedTags],
+        interestTags,
         subcategoryTags: parsedTags,
         venue: venue.trim() || 'Campus',
         city: city.trim() || 'Bengaluru',
