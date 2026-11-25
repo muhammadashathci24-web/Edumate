@@ -1,11 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Alert } from '../../components/Alert';
-import { Student, Assignment, AttendanceRecord, MarkRecord, ClassSection } from '../../lib/types';
+import { Student, Assignment, AttendanceRecord, MarkRecord, ClassSection, Course, AttendanceConfig } from '../../lib/types';
+import {
+  analyzeAttendanceByCourseSection,
+  formatAttendancePercentage,
+  StudentAttendanceSession,
+} from '../../lib/attendanceAnalysis';
 import { Users, BookOpen, CalendarCheck, Award, Plus, Save } from 'lucide-react';
 
 export const FacultyDashboard: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, token } = useAuth();
   const assignedClasses: ClassSection[] = profile?.assignedClasses || [];
 
   // Currently selected class (defaults to first assigned class)
@@ -16,6 +21,10 @@ export const FacultyDashboard: React.FC = () => {
 
   // Class data
   const [students, setStudents] = useState<Student[]>([]);
+  const [sectionCourses, setSectionCourses] = useState<Course[]>([]);
+  const [attendanceConfig, setAttendanceConfig] = useState<AttendanceConfig>({
+    requiredAttendancePercentage: null,
+  });
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
   const [marksHistory, setMarksHistory] = useState<MarkRecord[]>([]);
@@ -26,6 +35,7 @@ export const FacultyDashboard: React.FC = () => {
 
   // --- Attendance Tab State ---
   const [attendanceDate, setAttendanceDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedCourseCode, setSelectedCourseCode] = useState<string>('');
   const [attendanceSubject, setAttendanceSubject] = useState<string>('');
   const [attendanceState, setAttendanceState] = useState<Record<string, 'present' | 'absent'>>({});
   const [savingAttendance, setSavingAttendance] = useState<boolean>(false);
@@ -80,7 +90,25 @@ export const FacultyDashboard: React.FC = () => {
       const attData = await attRes.json();
       setAttendanceHistory(attData || []);
 
-      // 4. Marks
+      // 4. Courses & institutional attendance policy
+      const crsRes = await fetch(`/api/courses?department=${department}&year=${year}&section=${section}`);
+      if (crsRes.ok) {
+        const crsData: Course[] = await crsRes.json();
+        setSectionCourses(crsData || []);
+        const assignedForFaculty = (crsData || []).filter(
+          (c) =>
+            (profile?.uid && c.facultyIds?.includes(profile.uid)) ||
+            (profile?.courseCodes && profile.courseCodes.includes(c.code))
+        );
+        setSelectedCourseCode(assignedForFaculty[0]?.code || '');
+      }
+
+      const attCfgRes = await fetch('/api/attendance-config');
+      if (attCfgRes.ok) {
+        setAttendanceConfig(await attCfgRes.json());
+      }
+
+      // 5. Marks
       const mrkRes = await fetch(`/api/marks?department=${department}&year=${year}&section=${section}`);
       const mrkData = await mrkRes.json();
       setMarksHistory(mrkData || []);
@@ -112,6 +140,75 @@ export const FacultyDashboard: React.FC = () => {
     }));
   };
 
+  const assignedSectionCourses = useMemo(() => {
+    return sectionCourses.filter(
+      (c) =>
+        (profile?.uid && c.facultyIds?.includes(profile.uid)) ||
+        (profile?.courseCodes && profile.courseCodes.includes(c.code))
+    );
+  }, [sectionCourses, profile?.uid, profile?.courseCodes]);
+
+  // Per-student attendance warning summary for the currently selected course-section
+  const studentWarningRows = useMemo(() => {
+    if (!currentClass || students.length === 0) return [];
+    const activeCourse =
+      assignedSectionCourses.find((c) => c.code === selectedCourseCode) ||
+      assignedSectionCourses[0] ||
+      null;
+
+    const relevantHistory = activeCourse
+      ? attendanceHistory.filter((att) => {
+          if (att.courseCode) {
+            return att.courseCode.toUpperCase() === activeCourse.code.toUpperCase();
+          }
+          const sub = (att.subject || '').toLowerCase();
+          return (
+            sub === activeCourse.code.toLowerCase() ||
+            sub === activeCourse.title.toLowerCase() ||
+            sub.startsWith(`${activeCourse.code.toLowerCase()} `) ||
+            sub.startsWith(`${activeCourse.code.toLowerCase()}-`) ||
+            sub.startsWith(`${activeCourse.code.toLowerCase()}:`)
+          );
+        })
+      : attendanceHistory;
+
+    const courseList = activeCourse ? [activeCourse] : [];
+
+    return students.map((stu) => {
+      const sessions: StudentAttendanceSession[] = relevantHistory.map((att) => ({
+        id: att.id,
+        date: att.date,
+        department: att.department,
+        year: att.year,
+        section: att.section,
+        subject: att.subject,
+        courseCode: att.courseCode,
+        status: att.records[stu.usn] || 'not recorded',
+      }));
+      const analyses = analyzeAttendanceByCourseSection(
+        sessions,
+        courseList,
+        {
+          department: currentClass.department,
+          year: currentClass.year,
+          section: currentClass.section,
+        },
+        attendanceConfig.requiredAttendancePercentage
+      );
+      return {
+        student: stu,
+        analysis: analyses[0] || null,
+      };
+    });
+  }, [
+    currentClass,
+    students,
+    assignedSectionCourses,
+    selectedCourseCode,
+    attendanceHistory,
+    attendanceConfig.requiredAttendancePercentage,
+  ]);
+
   const handleSaveAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentClass) return;
@@ -121,19 +218,30 @@ export const FacultyDashboard: React.FC = () => {
       return;
     }
 
+    const selectedCourse = assignedSectionCourses.find((c) => c.code === selectedCourseCode);
+    const resolvedSubject = selectedCourse
+      ? attendanceSubject.trim()
+        ? `${selectedCourse.code} - ${selectedCourse.title} (${attendanceSubject.trim()})`
+        : `${selectedCourse.code} - ${selectedCourse.title}`
+      : attendanceSubject.trim() || 'General Session';
+
     setSavingAttendance(true);
     setFeedback(null);
 
     try {
       const res = await fetch('/api/attendance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           department: currentClass.department,
           year: currentClass.year,
           section: currentClass.section,
           date: attendanceDate,
-          subject: attendanceSubject.trim() || 'General Session',
+          courseCode: selectedCourse?.code,
+          subject: resolvedSubject,
           records: attendanceState,
           facultyId: profile?.uid,
         }),
@@ -148,6 +256,19 @@ export const FacultyDashboard: React.FC = () => {
         type: 'success',
         message: `Attendance for ${currentClass.department} Year ${currentClass.year} (${currentClass.section}) on ${attendanceDate} saved successfully!`,
       });
+
+      try {
+        const channel = new BroadcastChannel('edumate_attendance');
+        channel.postMessage({
+          type: 'ATTENDANCE_CHANGED',
+          department: currentClass.department,
+          year: currentClass.year,
+          section: currentClass.section,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
 
       // Reload attendance history
       const attRes = await fetch(
@@ -486,15 +607,39 @@ export const FacultyDashboard: React.FC = () => {
                     />
                   </div>
 
+                  {assignedSectionCourses.length > 0 && (
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" htmlFor="attendance-course">
+                        Assigned Course <span className="required">*</span>
+                      </label>
+                      <select
+                        id="attendance-course"
+                        className="form-select"
+                        value={selectedCourseCode}
+                        onChange={(e) => setSelectedCourseCode(e.target.value)}
+                      >
+                        {assignedSectionCourses.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code} — {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label" htmlFor="attendance-subject">
-                      Subject / Topic
+                      {assignedSectionCourses.length > 0 ? 'Session Topic (Optional)' : 'Subject / Topic'}
                     </label>
                     <input
                       id="attendance-subject"
                       type="text"
                       className="form-input"
-                      placeholder="e.g. Deep Learning - Lecture 12"
+                      placeholder={
+                        assignedSectionCourses.length > 0
+                          ? 'e.g. Lecture 12'
+                          : 'e.g. Deep Learning - Lecture 12'
+                      }
                       value={attendanceSubject}
                       onChange={(e) => setAttendanceSubject(e.target.value)}
                     />
@@ -580,6 +725,92 @@ export const FacultyDashboard: React.FC = () => {
             </div>
           </div>
 
+          {/* Section Attendance Warnings Summary (per assigned course-section) */}
+          {students.length > 0 && (
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <h3 className="card-title">
+                    Course-Section Attendance Warnings &amp; Trend Estimates
+                  </h3>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
+                    {selectedCourseCode ? `${selectedCourseCode} • ` : ''}
+                    {currentClass?.department} Year {currentClass?.year} (Section {currentClass?.section})
+                    {typeof attendanceConfig.requiredAttendancePercentage === 'number'
+                      ? ` — Official requirement: ${formatAttendancePercentage(attendanceConfig.requiredAttendancePercentage)}`
+                      : ' — Official requirement not configured by admin yet'}
+                  </p>
+                </div>
+              </div>
+              <div className="card-body">
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>USN</th>
+                        <th>Student</th>
+                        <th>Attended / Held</th>
+                        <th>Current %</th>
+                        <th>Safe Absences Left</th>
+                        <th>Weekly Trend (Estimate Only)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {studentWarningRows.map(({ student, analysis }) => {
+                        const pctText =
+                          analysis?.currentPercentage !== null && analysis?.currentPercentage !== undefined
+                            ? formatAttendancePercentage(analysis.currentPercentage)
+                            : 'N/A';
+                        const safeText = analysis?.threshold
+                          ? analysis.threshold.safeAbsences !== null
+                            ? `${analysis.threshold.safeAbsences}`
+                            : 'No data'
+                          : 'Pending policy';
+
+                        return (
+                          <tr key={student.usn}>
+                            <td>
+                              <span className="usn-badge">{student.usn}</span>
+                            </td>
+                            <td>
+                              <strong>{student.name}</strong>
+                            </td>
+                            <td>
+                              {analysis ? `${analysis.attended} / ${analysis.held}` : '0 / 0'}
+                            </td>
+                            <td>
+                              {analysis?.threshold ? (
+                                <span
+                                  className={`badge ${
+                                    analysis.threshold.status === 'below_threshold'
+                                      ? 'badge-disabled'
+                                      : analysis.threshold.status === 'at_limit'
+                                      ? 'badge-warning'
+                                      : analysis.threshold.status === 'safe'
+                                      ? 'badge-active'
+                                      : ''
+                                  }`}
+                                >
+                                  {pctText}
+                                </span>
+                              ) : (
+                                pctText
+                              )}
+                            </td>
+                            <td>{safeText}</td>
+                            <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                              {analysis?.regression.summary || 'More attendance history is needed for a trend forecast'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Past attendance history for this class */}
           {attendanceHistory.length > 0 && (
             <div className="card">
@@ -603,6 +834,7 @@ export const FacultyDashboard: React.FC = () => {
                         const present = Object.values(att.records).filter((v) => v === 'present').length;
                         const total = Object.values(att.records).length;
                         const pct = total > 0 ? Math.round((present / total) * 100) : 0;
+                        const reqPct = attendanceConfig.requiredAttendancePercentage;
                         return (
                           <tr key={att.id}>
                             <td>
@@ -612,7 +844,15 @@ export const FacultyDashboard: React.FC = () => {
                             <td>{present}</td>
                             <td>{total}</td>
                             <td>
-                              <span className={`badge ${pct >= 75 ? 'badge-active' : 'badge-disabled'}`}>
+                              <span
+                                className={`badge ${
+                                  typeof reqPct === 'number'
+                                    ? pct >= reqPct
+                                      ? 'badge-active'
+                                      : 'badge-disabled'
+                                    : ''
+                                }`}
+                              >
                                 {pct}%
                               </span>
                             </td>

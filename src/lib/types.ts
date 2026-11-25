@@ -28,6 +28,7 @@ export interface UserProfile {
   usn?: string;
   phone?: string;
   assignedClasses?: ClassSection[];
+  courseCodes?: string[];
   interests?: StudentInterests;
   isDemo?: boolean;
   createdAt?: string;
@@ -96,6 +97,7 @@ export interface AttendanceRecord {
   section: string;
   date: string;
   subject?: string;
+  courseCode?: string;
   records: Record<string, 'present' | 'absent'>; // key: USN
   markedByFacultyId: string;
   createdAt: string;
@@ -113,10 +115,19 @@ export interface MarkRecord {
   createdAt: string;
 }
 
+export interface AttendanceConfig {
+  requiredAttendancePercentage: number | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
 export interface SectionsConfig {
   departments: string[];
   years: number[];
   sectionsByDeptYear: Record<string, string[]>; // e.g. "AIML-3": ["A", "B", "C"]
+  requiredAttendancePercentage?: number | null;
+  attendanceRequirementUpdatedAt?: string | null;
+  attendanceRequirementUpdatedBy?: string | null;
 }
 
 export type OpportunityCategory =

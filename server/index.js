@@ -173,6 +173,72 @@ app.get('/api/sections-config', async (req, res) => {
   }
 });
 
+// Helper to extract normalized attendance requirement config without fabricating a default rule
+function formatAttendanceConfig(configDoc) {
+  const raw = configDoc?.requiredAttendancePercentage;
+  const isConfigured = typeof raw === 'number' && Number.isFinite(raw) && raw > 0 && raw <= 100;
+  return {
+    requiredAttendancePercentage: isConfigured ? raw : null,
+    updatedAt: isConfigured ? configDoc?.attendanceRequirementUpdatedAt || null : null,
+    updatedBy: isConfigured ? configDoc?.attendanceRequirementUpdatedBy || null : null,
+  };
+}
+
+// Config: Get Institutional Attendance Requirement
+app.get('/api/attendance-config', async (req, res) => {
+  if (isMock) {
+    return res.json(formatAttendanceConfig(mockStore.sectionsConfig));
+  }
+  try {
+    const doc = await db.collection('sectionsConfig').doc('default').get();
+    if (doc.exists) {
+      return res.json(formatAttendanceConfig(doc.data()));
+    }
+    return res.json(formatAttendanceConfig(null));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Config: Update Institutional Attendance Requirement (Admin only)
+app.put('/api/attendance-config', requireAdmin, async (req, res) => {
+  const rawPct = req.body?.requiredAttendancePercentage;
+  const parsedPct = typeof rawPct === 'number' ? rawPct : Number(rawPct);
+
+  if (!Number.isFinite(parsedPct) || parsedPct <= 0 || parsedPct > 100) {
+    return res.status(400).json({
+      error: 'Required attendance percentage must be greater than 0 and no more than 100.',
+    });
+  }
+
+  const now = new Date().toISOString();
+  const updatedBy = req.currentUser?.uid || 'admin';
+  const patch = {
+    requiredAttendancePercentage: parsedPct,
+    attendanceRequirementUpdatedAt: now,
+    attendanceRequirementUpdatedBy: updatedBy,
+  };
+
+  if (isMock) {
+    mockStore.sectionsConfig = {
+      ...mockStore.sectionsConfig,
+      ...patch,
+    };
+    const config = formatAttendanceConfig(mockStore.sectionsConfig);
+    broadcastAttendanceChange({ type: 'ATTENDANCE_CONFIG_CHANGED', config });
+    return res.json({ success: true, config });
+  }
+
+  try {
+    await db.collection('sectionsConfig').doc('default').set(patch, { merge: true });
+    const config = formatAttendanceConfig(patch);
+    broadcastAttendanceChange({ type: 'ATTENDANCE_CONFIG_CHANGED', config });
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Courses Catalog Endpoint
 app.get('/api/courses', (req, res) => {
   const { department, year, section } = req.query;
@@ -201,6 +267,42 @@ app.get('/api/courses', (req, res) => {
 
 // Real-time SSE Clients for live event synchronization
 const opportunitySseClients = new Set();
+const attendanceSseClients = new Set();
+
+export function broadcastAttendanceChange(payload) {
+  const data = JSON.stringify(payload);
+  for (const client of attendanceSseClients) {
+    try {
+      client.write(`data: ${data}\n\n`);
+    } catch {
+      attendanceSseClients.delete(client);
+    }
+  }
+}
+
+app.get('/api/attendance/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  attendanceSseClients.add(res);
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED' })}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keep-alive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+      attendanceSseClients.delete(res);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    attendanceSseClients.delete(res);
+  });
+});
 
 export function broadcastOpportunityChange(payload) {
   const data = JSON.stringify(payload);
@@ -474,6 +576,7 @@ app.put('/api/sections-config', requireAdmin, async (req, res) => {
 
   const updatedConfig = {
     ...INITIAL_SECTIONS_CONFIG,
+    ...mockStore.sectionsConfig,
     sectionsByDeptYear,
   };
 
@@ -483,8 +586,13 @@ app.put('/api/sections-config', requireAdmin, async (req, res) => {
   }
 
   try {
-    await db.collection('sectionsConfig').doc('default').set(updatedConfig, { merge: true });
-    res.json({ success: true, config: updatedConfig });
+    await db.collection('sectionsConfig').doc('default').set({
+      departments: INITIAL_SECTIONS_CONFIG.departments,
+      years: INITIAL_SECTIONS_CONFIG.years,
+      sectionsByDeptYear,
+    }, { merge: true });
+    const latest = await db.collection('sectionsConfig').doc('default').get();
+    res.json({ success: true, config: latest.exists ? latest.data() : updatedConfig });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1061,34 +1169,120 @@ app.get('/api/attendance', (req, res) => {
     .catch(err => res.status(500).json({ error: err.message }));
 });
 
+// Helper to verify active admin or assigned faculty for a class section (and optional courseCode)
+async function verifyAttendanceWriter(req, { department, year, section, courseCode, facultyId }) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : null;
+  const parsedYear = Number(year);
+  const normalizedCode = courseCode ? String(courseCode).trim().toUpperCase() : null;
+
+  let actor = null;
+  if (isMock) {
+    if (token) {
+      actor =
+        mockStore.users.get(token) ||
+        Array.from(mockStore.users.values()).find((u) => u.email === token) ||
+        null;
+    } else if (facultyId) {
+      actor = mockStore.users.get(facultyId) || mockStore.faculty.get(facultyId) || null;
+    }
+  } else {
+    let uid = null;
+    if (token) {
+      const decoded = await auth.verifyIdToken(token);
+      uid = decoded.uid;
+    } else if (facultyId) {
+      uid = facultyId;
+    }
+    if (uid) {
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        actor = userDoc.data();
+      }
+    }
+  }
+
+  if (!actor || actor.status !== 'active') {
+    return { allowed: false, status: 403, error: 'Active faculty or admin authorization is required.' };
+  }
+  if (actor.role === 'admin') {
+    return { allowed: true, actor };
+  }
+  if (actor.role !== 'faculty') {
+    return { allowed: false, status: 403, error: 'Only authorized faculty or admins can record attendance.' };
+  }
+
+  const assignedClasses = actor.assignedClasses || [];
+  const hasClass = assignedClasses.some(
+    (c) => c.department === department && Number(c.year) === parsedYear && c.section === section
+  );
+  if (!hasClass) {
+    return {
+      allowed: false,
+      status: 403,
+      error: `Faculty is not assigned to ${department} Year ${parsedYear} Section ${section}.`,
+    };
+  }
+
+  if (normalizedCode && Array.isArray(actor.courseCodes) && actor.courseCodes.length > 0) {
+    const allowedCodes = actor.courseCodes.map((c) => String(c).trim().toUpperCase());
+    if (!allowedCodes.includes(normalizedCode)) {
+      return {
+        allowed: false,
+        status: 403,
+        error: `Faculty is not assigned to course ${normalizedCode}.`,
+      };
+    }
+  }
+
+  return { allowed: true, actor };
+}
+
 // Attendance: Save (Faculty)
-app.post('/api/attendance', (req, res) => {
-  const { department, year, section, date, subject, records, facultyId } = req.body;
+app.post('/api/attendance', async (req, res) => {
+  const { department, year, section, date, subject, courseCode, records, facultyId } = req.body;
   if (!department || !year || !section || !date || !records) {
     return res.status(400).json({ error: 'Class, date, and attendance records are required.' });
   }
 
-  const id = 'att-' + crypto.randomUUID();
-  const attendanceDoc = {
-    id,
-    department,
-    year: Number(year),
-    section,
-    date,
-    subject: subject ? subject.trim() : 'General',
-    records,
-    markedByFacultyId: facultyId,
-    createdAt: new Date().toISOString(),
-  };
+  try {
+    const authResult = await verifyAttendanceWriter(req, {
+      department,
+      year,
+      section,
+      courseCode,
+      facultyId,
+    });
+    if (!authResult.allowed) {
+      return res.status(authResult.status).json({ error: authResult.error });
+    }
 
-  if (isMock) {
-    mockStore.attendance.set(id, attendanceDoc);
-    return res.status(201).json({ success: true, attendance: attendanceDoc });
+    const id = 'att-' + crypto.randomUUID();
+    const attendanceDoc = {
+      id,
+      department,
+      year: Number(year),
+      section,
+      date,
+      subject: subject ? subject.trim() : 'General',
+      ...(courseCode ? { courseCode: String(courseCode).trim().toUpperCase() } : {}),
+      records,
+      markedByFacultyId: authResult.actor.uid || facultyId,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (isMock) {
+      mockStore.attendance.set(id, attendanceDoc);
+      broadcastAttendanceChange({ type: 'ATTENDANCE_CHANGED', department, year: Number(year), section });
+      return res.status(201).json({ success: true, attendance: attendanceDoc });
+    }
+
+    await db.collection('attendance').doc(id).set(attendanceDoc);
+    broadcastAttendanceChange({ type: 'ATTENDANCE_CHANGED', department, year: Number(year), section });
+    res.status(201).json({ success: true, attendance: attendanceDoc });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  db.collection('attendance').doc(id).set(attendanceDoc)
-    .then(() => res.status(201).json({ success: true, attendance: attendanceDoc }))
-    .catch(err => res.status(500).json({ error: err.message }));
 });
 
 // Marks: Get by class
@@ -1213,8 +1407,35 @@ app.put('/api/student/interests/:usn', async (req, res) => {
 });
 
 // Student Dashboard Data
-app.get('/api/student/dashboard-data/:usn', (req, res) => {
+app.get('/api/student/dashboard-data/:usn', async (req, res) => {
   const normalizedUSN = req.params.usn.trim().toUpperCase();
+  const authHeader = req.headers.authorization;
+
+  if (authHeader) {
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    try {
+      let requester = null;
+      if (isMock) {
+        requester =
+          mockStore.users.get(token) ||
+          Array.from(mockStore.users.values()).find((u) => u.email === token) ||
+          null;
+      } else {
+        const decoded = await auth.verifyIdToken(token);
+        const userDoc = await db.collection('users').doc(decoded.uid).get();
+        requester = userDoc.exists ? userDoc.data() : null;
+      }
+
+      if (!requester || requester.status !== 'active') {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+      if (requester.role === 'student' && requester.usn?.toUpperCase() !== normalizedUSN) {
+        return res.status(403).json({ error: 'Students can view only their own attendance and academic records.' });
+      }
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid authentication token: ' + err.message });
+    }
+  }
 
   if (isMock) {
     const student = mockStore.students.get(normalizedUSN);
@@ -1232,13 +1453,17 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
       c => c.department === student.department && c.year === student.year && c.sections.includes(student.section)
     );
 
-    // Get attendance for student's class
+    // Get attendance for student's class (scoped strictly to this student's status)
     const attendance = Array.from(mockStore.attendance.values())
       .filter(a => a.department === student.department && a.year === student.year && a.section === student.section)
       .map(att => ({
         id: att.id,
         date: att.date,
+        department: att.department,
+        year: att.year,
+        section: att.section,
         subject: att.subject,
+        courseCode: att.courseCode,
         status: att.records[normalizedUSN] || 'not recorded',
       }));
 
@@ -1258,6 +1483,7 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
       assignments,
       attendance,
       marks,
+      attendanceConfig: formatAttendanceConfig(mockStore.sectionsConfig),
     });
   }
 
@@ -1294,7 +1520,11 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
         return {
           id: data.id,
           date: data.date,
+          department: data.department,
+          year: data.year,
+          section: data.section,
           subject: data.subject,
+          courseCode: data.courseCode,
           status: data.records ? data.records[normalizedUSN] || 'not recorded' : 'not recorded',
         };
       });
@@ -1314,7 +1544,10 @@ app.get('/api/student/dashboard-data/:usn', (req, res) => {
         };
       });
 
-      res.json({ student, courses, assignments, attendance, marks });
+      const configDoc = await db.collection('sectionsConfig').doc('default').get();
+      const attendanceConfig = formatAttendanceConfig(configDoc.exists ? configDoc.data() : null);
+
+      res.json({ student, courses, assignments, attendance, marks, attendanceConfig });
     })
     .catch(err => res.status(500).json({ error: err.message }));
 });

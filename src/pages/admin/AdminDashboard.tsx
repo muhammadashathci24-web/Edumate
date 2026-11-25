@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Alert } from '../../components/Alert';
-import { Student, Faculty, SectionsConfig, Course, Opportunity } from '../../lib/types';
+import { Student, Faculty, SectionsConfig, Course, Opportunity, AttendanceConfig } from '../../lib/types';
+import { validateAttendanceRequirement, formatAttendancePercentage } from '../../lib/attendanceAnalysis';
 import { AddStudentModal } from './AddStudentModal';
 import { EditStudentModal } from './EditStudentModal';
 import { AddFacultyModal } from './AddFacultyModal';
@@ -40,6 +41,11 @@ export const AdminDashboard: React.FC = () => {
     years: [1, 2, 3, 4],
     sectionsByDeptYear: { 'AIML-3': ['A', 'B', 'C'] },
   });
+  const [attendanceConfig, setAttendanceConfig] = useState<AttendanceConfig>({
+    requiredAttendancePercentage: null,
+  });
+  const [attendanceReqInput, setAttendanceReqInput] = useState<string>('');
+  const [savingAttendancePolicy, setSavingAttendancePolicy] = useState<boolean>(false);
 
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'danger'; message: string } | null>(null);
@@ -80,6 +86,18 @@ export const AdminDashboard: React.FC = () => {
       const configRes = await fetch('/api/sections-config');
       if (configRes.ok) {
         setConfig(await configRes.json());
+      }
+
+      // Attendance Policy Config
+      const attCfgRes = await fetch('/api/attendance-config');
+      if (attCfgRes.ok) {
+        const attCfg: AttendanceConfig = await attCfgRes.json();
+        setAttendanceConfig(attCfg);
+        setAttendanceReqInput(
+          typeof attCfg.requiredAttendancePercentage === 'number'
+            ? String(attCfg.requiredAttendancePercentage)
+            : ''
+        );
       }
 
       // Courses (8 active courses)
@@ -323,6 +341,71 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  // Save institutional attendance requirement (Admin only)
+  const handleSaveAttendancePolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = Number(attendanceReqInput);
+    const validation = validateAttendanceRequirement(parsed);
+    if (!validation.valid) {
+      setFeedback({ type: 'danger', message: validation.error || 'Invalid attendance requirement.' });
+      return;
+    }
+
+    setSavingAttendancePolicy(true);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/attendance-config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ requiredAttendancePercentage: parsed }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to save attendance requirement.');
+      }
+
+      setAttendanceConfig(data.config);
+
+      // Sync directly with Firestore if client is active
+      if (db && auth?.currentUser) {
+        try {
+          await setDoc(
+            doc(db, 'sectionsConfig', 'default'),
+            {
+              requiredAttendancePercentage: data.config.requiredAttendancePercentage,
+              attendanceRequirementUpdatedAt: data.config.updatedAt,
+              attendanceRequirementUpdatedBy: data.config.updatedBy,
+            },
+            { merge: true }
+          );
+        } catch (fbErr) {
+          console.warn('[Firestore] Attendance policy sync notice:', fbErr);
+        }
+      }
+
+      try {
+        const channel = new BroadcastChannel('edumate_attendance');
+        channel.postMessage({ type: 'ATTENDANCE_CONFIG_CHANGED', config: data.config });
+        channel.close();
+      } catch {
+        // ignore
+      }
+
+      setFeedback({
+        type: 'success',
+        message: `Official attendance requirement set to ${formatAttendancePercentage(parsed)}.`,
+      });
+    } catch (err: any) {
+      setFeedback({ type: 'danger', message: err.message });
+    } finally {
+      setSavingAttendancePolicy(false);
+    }
+  };
+
   // Filtered Students
   const filteredStudents = students.filter((s) => {
     const q = searchQuery.toLowerCase().trim();
@@ -473,6 +556,66 @@ export const AdminDashboard: React.FC = () => {
               Assigned teaching faculty
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Institutional Attendance Requirement Setting */}
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <div className="card-body" style={{ padding: '1rem 1.25rem' }}>
+          <form
+            onSubmit={handleSaveAttendancePolicy}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '1rem',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text-main)' }}>
+                  Official Attendance Requirement Policy
+                </span>
+                {typeof attendanceConfig.requiredAttendancePercentage === 'number' ? (
+                  <span className="badge badge-active">
+                    Configured: {formatAttendancePercentage(attendanceConfig.requiredAttendancePercentage)}
+                  </span>
+                ) : (
+                  <span className="badge badge-warning">Not Configured</span>
+                )}
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+                Set the official minimum attendance percentage (&gt; 0% and &le; 100%) used for student attendance shortage warnings.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <label htmlFor="admin-attendance-req" className="form-label" style={{ margin: 0 }}>
+                Required %:
+              </label>
+              <input
+                id="admin-attendance-req"
+                type="number"
+                min="0.1"
+                max="100"
+                step="0.5"
+                className="form-input"
+                style={{ width: '110px', padding: '0.4rem 0.6rem' }}
+                placeholder="e.g. 75"
+                value={attendanceReqInput}
+                onChange={(e) => setAttendanceReqInput(e.target.value)}
+                required
+              />
+              <button
+                type="submit"
+                className="btn btn-primary btn-sm"
+                disabled={savingAttendancePolicy}
+              >
+                {savingAttendancePolicy ? 'Saving...' : 'Save Requirement'}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 

@@ -2,8 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { EmptyState } from './EmptyState';
 import { Alert } from '../../components/Alert';
-import { Assignment, Course, StudentInterests, Opportunity } from '../../lib/types';
+import { Assignment, Course, StudentInterests, Opportunity, AttendanceConfig } from '../../lib/types';
 import { matchOpportunities } from '../../lib/recommendations';
+import {
+  analyzeAttendanceByCourseSection,
+  formatAttendancePercentage,
+  StudentAttendanceSession,
+} from '../../lib/attendanceAnalysis';
+import { AttendanceWarningsSection } from '../../components/AttendanceWarningsSection';
 import {
   User,
   BookOpen,
@@ -27,7 +33,11 @@ import { db } from '../../lib/firebase';
 interface AttendanceItem {
   id: string;
   date: string;
+  department?: string;
+  year?: number;
+  section?: string;
   subject?: string;
+  courseCode?: string;
   status: 'present' | 'absent' | 'not recorded';
 }
 
@@ -39,11 +49,14 @@ interface MarkItem {
 }
 
 export const StudentDashboard: React.FC = () => {
-  const { profile, refreshProfile } = useAuth();
+  const { profile, token, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'recommendations' | 'courses' | 'assignments' | 'attendance' | 'marks'>('overview');
   const [courses, setCourses] = useState<Course[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceItem[]>([]);
+  const [attendanceConfig, setAttendanceConfig] = useState<AttendanceConfig>({
+    requiredAttendancePercentage: null,
+  });
   const [marks, setMarks] = useState<MarkItem[]>([]);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [oppsLoading, setOppsLoading] = useState<boolean>(true);
@@ -167,32 +180,82 @@ export const StudentDashboard: React.FC = () => {
       return;
     }
 
-    const loadStudentData = async () => {
-      setLoading(true);
+    let isMounted = true;
+    let bc: BroadcastChannel | null = null;
+    let eventSource: EventSource | null = null;
+
+    const loadStudentData = async (showSpinner = true) => {
+      if (showSpinner && isMounted) {
+        setLoading(true);
+      }
       setError(null);
       try {
-        const res = await fetch(`/api/student/dashboard-data/${encodeURIComponent(profile.usn!)}`);
+        const res = await fetch(`/api/student/dashboard-data/${encodeURIComponent(profile.usn!)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
         if (!res.ok) {
           throw new Error('Could not load student academic data.');
         }
         const data = await res.json();
+        if (!isMounted) return;
         setCourses(data.courses || []);
         setAssignments(data.assignments || []);
         setAttendance(data.attendance || []);
         setMarks(data.marks || []);
+        if (data.attendanceConfig) {
+          setAttendanceConfig(data.attendanceConfig);
+        }
         if (data.student?.interests) {
           setStudentInterests(data.student.interests);
         }
       } catch (err: any) {
         console.error('Student data fetch error:', err);
-        setError(err.message || 'Failed to load records.');
+        if (isMounted) {
+          setError(err.message || 'Failed to load records.');
+        }
       } finally {
-        setLoading(false);
+        if (showSpinner && isMounted) {
+          setLoading(false);
+        }
       }
     };
 
-    loadStudentData();
-  }, [profile?.usn]);
+    loadStudentData(true);
+
+    try {
+      bc = new BroadcastChannel('edumate_attendance');
+      bc.onmessage = () => {
+        if (isMounted) {
+          loadStudentData(false);
+        }
+      };
+    } catch {
+      // ignore if unsupported
+    }
+
+    try {
+      eventSource = new EventSource('/api/attendance/stream');
+      eventSource.onmessage = (event) => {
+        if (!isMounted) return;
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload?.type === 'ATTENDANCE_CHANGED' || payload?.type === 'ATTENDANCE_CONFIG_CHANGED') {
+            loadStudentData(false);
+          }
+        } catch {
+          // ignore
+        }
+      };
+    } catch {
+      // ignore if unsupported
+    }
+
+    return () => {
+      isMounted = false;
+      if (bc) bc.close();
+      if (eventSource) eventSource.close();
+    };
+  }, [profile?.usn, token]);
 
   const handleSaveInterests = async (newInterests: StudentInterests) => {
     if (!profile?.usn) return;
@@ -215,8 +278,50 @@ export const StudentDashboard: React.FC = () => {
   const recordedAttendance = attendance.filter((a) => a.status === 'present' || a.status === 'absent');
   const presentCount = recordedAttendance.filter((a) => a.status === 'present').length;
   const attendancePercentage = recordedAttendance.length > 0
-    ? Math.round((presentCount / recordedAttendance.length) * 100)
+    ? (presentCount / recordedAttendance.length) * 100
     : null;
+
+  const normalizedAttendanceSessions: StudentAttendanceSession[] = useMemo(() => {
+    return attendance.map((att) => ({
+      id: att.id,
+      date: att.date,
+      department: att.department || profile?.department || '',
+      year: att.year || profile?.year || 3,
+      section: att.section || profile?.section || '',
+      subject: att.subject,
+      courseCode: att.courseCode,
+      status: att.status,
+    }));
+  }, [attendance, profile?.department, profile?.year, profile?.section]);
+
+  const courseSectionAnalyses = useMemo(() => {
+    if (!profile?.department || !profile?.year || !profile?.section) return [];
+    return analyzeAttendanceByCourseSection(
+      normalizedAttendanceSessions,
+      courses,
+      {
+        department: profile.department,
+        year: profile.year,
+        section: profile.section,
+      },
+      attendanceConfig.requiredAttendancePercentage
+    );
+  }, [
+    normalizedAttendanceSessions,
+    courses,
+    profile?.department,
+    profile?.year,
+    profile?.section,
+    attendanceConfig.requiredAttendancePercentage,
+  ]);
+
+  const coursesAtRisk = useMemo(() => {
+    return courseSectionAnalyses.filter(
+      (a) =>
+        a.threshold?.status === 'below_threshold' ||
+        a.threshold?.status === 'at_limit'
+    );
+  }, [courseSectionAnalyses]);
 
   // Average marks calculation for scholarship conditions
   const evaluatedMarks = marks.filter((m) => m.obtainedMarks !== null && m.maxMarks > 0);
@@ -576,7 +681,7 @@ export const StudentDashboard: React.FC = () => {
               <div className="card-body" style={{ textAlign: 'center', padding: '1.25rem' }}>
                 <CalendarCheck size={26} style={{ color: 'var(--color-secondary)', margin: '0 auto 0.4rem auto' }} />
                 <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-text-main)' }}>
-                  {attendancePercentage !== null ? `${attendancePercentage}%` : 'N/A'}
+                  {attendancePercentage !== null ? formatAttendancePercentage(attendancePercentage) : 'N/A'}
                 </div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
                   Attendance Rate
@@ -608,6 +713,29 @@ export const StudentDashboard: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {coursesAtRisk.length > 0 && (
+            <div className="card" style={{ borderColor: 'var(--color-warning-border)', backgroundColor: 'var(--color-warning-bg)' }}>
+              <div className="card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-warning)' }}>
+                    Attendance Shortage Alert ({coursesAtRisk.length}{' '}
+                    {coursesAtRisk.length === 1 ? 'course' : 'courses'} need attention)
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--color-text-main)', marginTop: '0.2rem' }}>
+                    {coursesAtRisk.map((c) => c.threshold?.explanation || c.displayName).join(' • ')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setActiveTab('attendance')}
+                >
+                  View Attendance Warnings <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -817,66 +945,86 @@ export const StudentDashboard: React.FC = () => {
 
       {/* Tab 3: Attendance */}
       {activeTab === 'attendance' && (
-        <div className="card">
-          <div className="card-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <CalendarCheck size={20} style={{ color: 'var(--color-secondary)' }} />
-              <h2 className="card-title">My Attendance History</h2>
-            </div>
-            {attendancePercentage !== null && (
-              <span
-                style={{
-                  fontSize: '0.875rem',
-                  fontWeight: 700,
-                  color: attendancePercentage >= 75 ? 'var(--color-success)' : 'var(--color-danger)',
-                }}
-              >
-                Overall: {attendancePercentage}% ({presentCount}/{recordedAttendance.length} sessions)
-              </span>
-            )}
-          </div>
-          <div className="card-body">
-            {attendance.length === 0 ? (
-              <EmptyState
-                title="No Attendance Records Found"
-                description="Attendance sessions for your class section have not been logged yet by your faculty."
-              />
-            ) : (
-              <div className="table-wrapper">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Subject / Session</th>
-                      <th>Class & Section</th>
-                      <th>Attendance Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attendance.map((att) => (
-                      <tr key={att.id}>
-                        <td>
-                          <strong>{att.date}</strong>
-                        </td>
-                        <td>{att.subject || 'Regular Session'}</td>
-                        <td>
-                          {profile?.department} - Year {profile?.year} ({profile?.section})
-                        </td>
-                        <td>
-                          {att.status === 'present' ? (
-                            <span className="badge badge-active">Present</span>
-                          ) : att.status === 'absent' ? (
-                            <span className="badge badge-disabled">Absent</span>
-                          ) : (
-                            <span className="badge">Not Recorded</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <div>
+          {profile && (
+            <AttendanceWarningsSection
+              sessions={normalizedAttendanceSessions}
+              courses={courses}
+              studentSection={{
+                department: profile.department || '',
+                year: profile.year || 3,
+                section: profile.section || '',
+              }}
+              attendanceConfig={attendanceConfig}
+            />
+          )}
+
+          <div className="card">
+            <div className="card-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CalendarCheck size={20} style={{ color: 'var(--color-secondary)' }} />
+                <h2 className="card-title">My Attendance History</h2>
               </div>
-            )}
+              {attendancePercentage !== null && (
+                <span
+                  style={{
+                    fontSize: '0.875rem',
+                    fontWeight: 700,
+                    color:
+                      typeof attendanceConfig.requiredAttendancePercentage === 'number'
+                        ? attendancePercentage >= attendanceConfig.requiredAttendancePercentage
+                          ? 'var(--color-success)'
+                          : 'var(--color-danger)'
+                        : 'var(--color-text-main)',
+                  }}
+                >
+                  Overall: {formatAttendancePercentage(attendancePercentage)} ({presentCount}/{recordedAttendance.length} sessions)
+                </span>
+              )}
+            </div>
+            <div className="card-body">
+              {attendance.length === 0 ? (
+                <EmptyState
+                  title="No Attendance Records Found"
+                  description="Attendance sessions for your class section have not been logged yet by your faculty."
+                />
+              ) : (
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Subject / Session</th>
+                        <th>Class & Section</th>
+                        <th>Attendance Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {attendance.map((att) => (
+                        <tr key={att.id}>
+                          <td>
+                            <strong>{att.date}</strong>
+                          </td>
+                          <td>{att.subject || 'Regular Session'}</td>
+                          <td>
+                            {profile?.department} - Year {profile?.year} ({profile?.section})
+                          </td>
+                          <td>
+                            {att.status === 'present' ? (
+                              <span className="badge badge-active">Present</span>
+                            ) : att.status === 'absent' ? (
+                              <span className="badge badge-disabled">Absent</span>
+                            ) : (
+                              <span className="badge">Not Recorded</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
