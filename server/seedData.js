@@ -980,31 +980,79 @@ export function buildSemesterAttendanceSeed() {
 // Initial Attendance (Deterministic first 8 weeks of the 12-week semester; Weeks 9-12 reserved for forecasting)
 export const INITIAL_ATTENDANCE = buildSemesterAttendanceSeed();
 
-// Initial Marks
-export const INITIAL_MARKS = [
-  {
-    id: 'mrk-001',
-    department: 'AIML',
-    year: 3,
-    section: 'A',
-    assessmentTitle: 'Internal Assessment 1 - Deep Learning',
-    maxMarks: 50,
-    recordedByFacultyId: 'fac-vk',
-    createdAt: new Date().toISOString(),
-    records: {
-      '1EM22AI001': 46,
-      '1EM22AI002': 42,
-      '1EM22AI003': 38,
-      '1EM22AI004': 48,
-      '1EM22AI005': 35,
-      '1EM22AI006': 44,
-      '1EM22AI007': 39,
-      '1EM22AI008': 47,
-      '1EM22AI009': 41,
-      '1EM22AI010': 45,
-    },
-  },
-];
+function deterministicInternalScore(studentIdx, courseIdx, internalNumber) {
+  // Showcase explicit test scenarios for first student in Section A (1EM22AI001):
+  if (studentIdx === 0) {
+    // BAI504T: 10 and 14 -> avg 12, 12 needed in Internal 3, regression predicts 18 -> projected 14
+    if (courseIdx === 3) return internalNumber === 1 ? 10 : 14;
+    // BAI502G: 14 and 9 -> avg 11.5 (currently below target), regression predicts 4 -> projected 9 (projected below 12)
+    if (courseIdx === 1) return internalNumber === 1 ? 14 : 9;
+    // BAI503T: 2 and 3 -> sum 5, needs 31 (> 30) -> impossible to reach 12 average
+    if (courseIdx === 2) return internalNumber === 1 ? 2 : 3;
+    // BAI501G (all 3 recorded): 22, 24, 26 -> final avg 24/30 (meets 12)
+    if (courseIdx === 0) return 20 + internalNumber * 2;
+    // BBS509TK (all 3 recorded): 9, 10, 11 -> final avg 10/30 (does not meet 12)
+    if (courseIdx === 7) return 8 + internalNumber;
+    // BAI506E2 (only 1 recorded): 10/30
+    if (courseIdx === 5) return 10;
+    // BAI505L, BBS508AK: solid scores
+    return 18 + internalNumber * 2;
+  }
+
+  const base = 10 + ((studentIdx * 5 + courseIdx * 3 + internalNumber * 2) % 17); // 10..26
+  return Math.min(30, Math.max(0, base));
+}
+
+export function buildSemesterMarksSeed() {
+  const marksList = [];
+  const studentsBySection = new Map();
+
+  for (const stu of DEMO_STUDENTS) {
+    const secStudents = studentsBySection.get(stu.section) || [];
+    secStudents.push(stu);
+    studentsBySection.set(stu.section, secStudents);
+  }
+
+  const sections = ['A', 'B', 'C'];
+  for (const section of sections) {
+    const secStudents = studentsBySection.get(section) || [];
+    for (let courseIdx = 0; courseIdx < DEMO_COURSES.length; courseIdx++) {
+      const course = DEMO_COURSES[courseIdx];
+      // Course 0 & 7 have all 3 internals; Course 5 has 1 internal; others have 2 internals recorded
+      const internalsCount =
+        courseIdx === 0 || courseIdx === 7 ? 3 : courseIdx === 5 ? 1 : 2;
+
+      for (let internalNum = 1; internalNum <= internalsCount; internalNum++) {
+        const records = {};
+        for (let stuIdx = 0; stuIdx < secStudents.length; stuIdx++) {
+          const stu = secStudents[stuIdx];
+          records[stu.usn] = deterministicInternalScore(stuIdx, courseIdx, internalNum);
+        }
+
+        const day = internalNum === 1 ? '2026-10-16' : internalNum === 2 ? '2026-11-13' : '2026-11-20';
+        marksList.push({
+          id: `mrk-${course.code}-${section}-ia${internalNum}`,
+          department: course.department,
+          year: course.year,
+          section,
+          courseCode: course.code,
+          internalNumber: internalNum,
+          assessmentTitle: `${course.code} - Internal ${internalNum}`,
+          maxMarks: SEMESTER_CONFIG.internalMaxMarks,
+          recordedByFacultyId: course.facultyIds[0],
+          createdAt: `${day}T11:00:00.000Z`,
+          isSampleData: true,
+          records,
+        });
+      }
+    }
+  }
+
+  return marksList;
+}
+
+// Initial Marks (30-mark internals per course & section)
+export const INITIAL_MARKS = buildSemesterMarksSeed();
 
 // Initial Opportunities Catalog (Sample test data for development & recommendations)
 export const INITIAL_OPPORTUNITIES = [

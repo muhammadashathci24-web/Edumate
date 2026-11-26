@@ -1343,33 +1343,85 @@ app.get('/api/marks', (req, res) => {
 });
 
 // Marks: Save (Faculty)
-app.post('/api/marks', (req, res) => {
-  const { department, year, section, assessmentTitle, maxMarks, records, facultyId } = req.body;
+app.post('/api/marks', async (req, res) => {
+  const {
+    department,
+    year,
+    section,
+    courseCode,
+    internalNumber,
+    assessmentTitle,
+    maxMarks,
+    records,
+    facultyId,
+  } = req.body;
+
   if (!department || !year || !section || !assessmentTitle || !maxMarks || !records) {
     return res.status(400).json({ error: 'Assessment title, max marks, class, and marks records are required.' });
   }
 
-  const id = 'mrk-' + crypto.randomUUID();
-  const markDoc = {
-    id,
-    department,
-    year: Number(year),
-    section,
-    assessmentTitle: assessmentTitle.trim(),
-    maxMarks: Number(maxMarks),
-    records,
-    recordedByFacultyId: facultyId,
-    createdAt: new Date().toISOString(),
-  };
-
-  if (isMock) {
-    mockStore.marks.set(id, markDoc);
-    return res.status(201).json({ success: true, mark: markDoc });
+  const parsedMaxMarks = Number(maxMarks);
+  if (!Number.isFinite(parsedMaxMarks) || parsedMaxMarks <= 0) {
+    return res.status(400).json({ error: 'Maximum marks must be greater than zero.' });
   }
 
-  db.collection('marks').doc(id).set(markDoc)
-    .then(() => res.status(201).json({ success: true, mark: markDoc }))
-    .catch(err => res.status(500).json({ error: err.message }));
+  let parsedInternalNum;
+  if (internalNumber !== undefined && internalNumber !== null && internalNumber !== '') {
+    const n = Number(internalNumber);
+    if (n !== 1 && n !== 2 && n !== 3) {
+      return res.status(400).json({ error: 'Internal assessment number must be 1, 2, or 3.' });
+    }
+    parsedInternalNum = n;
+  }
+
+  for (const [usn, score] of Object.entries(records)) {
+    const numScore = Number(score);
+    if (!Number.isFinite(numScore) || numScore < 0 || numScore > parsedMaxMarks) {
+      return res.status(400).json({
+        error: `Invalid score for ${usn}: must be between 0 and ${parsedMaxMarks}.`,
+      });
+    }
+  }
+
+  try {
+    const authResult = await verifyAttendanceWriter(req, {
+      department,
+      year,
+      section,
+      courseCode,
+      facultyId,
+    });
+    if (!authResult.allowed) {
+      return res.status(authResult.status).json({ error: authResult.error });
+    }
+
+    const id = 'mrk-' + crypto.randomUUID();
+    const markDoc = {
+      id,
+      department,
+      year: Number(year),
+      section,
+      ...(courseCode ? { courseCode: String(courseCode).trim().toUpperCase() } : {}),
+      ...(parsedInternalNum ? { internalNumber: parsedInternalNum } : {}),
+      assessmentTitle: assessmentTitle.trim(),
+      maxMarks: parsedMaxMarks,
+      records,
+      recordedByFacultyId: authResult.actor.uid || facultyId,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (isMock) {
+      mockStore.marks.set(id, markDoc);
+      broadcastAttendanceChange({ type: 'MARKS_CHANGED', department, year: Number(year), section });
+      return res.status(201).json({ success: true, mark: markDoc });
+    }
+
+    await db.collection('marks').doc(id).set(markDoc);
+    broadcastAttendanceChange({ type: 'MARKS_CHANGED', department, year: Number(year), section });
+    res.status(201).json({ success: true, mark: markDoc });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Student Interests: Get
@@ -1509,6 +1561,11 @@ app.get('/api/student/dashboard-data/:usn', async (req, res) => {
       .filter(m => m.department === student.department && m.year === student.year && m.section === student.section)
       .map(mrk => ({
         id: mrk.id,
+        department: mrk.department,
+        year: mrk.year,
+        section: mrk.section,
+        courseCode: mrk.courseCode,
+        internalNumber: mrk.internalNumber,
         assessmentTitle: mrk.assessmentTitle,
         maxMarks: mrk.maxMarks,
         obtainedMarks: mrk.records[normalizedUSN] !== undefined ? mrk.records[normalizedUSN] : null,
@@ -1576,6 +1633,11 @@ app.get('/api/student/dashboard-data/:usn', async (req, res) => {
         const data = d.data();
         return {
           id: data.id,
+          department: data.department,
+          year: data.year,
+          section: data.section,
+          courseCode: data.courseCode,
+          internalNumber: data.internalNumber,
           assessmentTitle: data.assessmentTitle,
           maxMarks: data.maxMarks,
           obtainedMarks: data.records && data.records[normalizedUSN] !== undefined ? data.records[normalizedUSN] : null,

@@ -109,6 +109,8 @@ export interface MarkRecord {
   department: string;
   year: number;
   section: string;
+  courseCode?: string;
+  internalNumber?: 1 | 2 | 3;
   assessmentTitle: string;
   maxMarks: number;
   records: Record<string, number>; // key: USN
