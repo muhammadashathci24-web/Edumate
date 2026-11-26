@@ -10,8 +10,9 @@ import {
 import { DEMO_COURSES, DEMO_FACULTY, DEMO_STUDENTS, INITIAL_SECTIONS_CONFIG } from '../server/seedData.js';
 
 describe('Attendance Shortage Warnings Integration & Permissions Verification', () => {
-  it('does not silently invent an official attendance requirement in seed config', () => {
-    expect((INITIAL_SECTIONS_CONFIG as any).requiredAttendancePercentage).toBeUndefined();
+  it('configures the institutional 85% attendance requirement and 12-week semester in local seed config', () => {
+    expect((INITIAL_SECTIONS_CONFIG as any).requiredAttendancePercentage).toBe(85);
+    expect((INITIAL_SECTIONS_CONFIG as any).semesterWeeks).toBe(12);
   });
 
   it('rejects invalid attendance policy percentages (<= 0 or > 100)', () => {

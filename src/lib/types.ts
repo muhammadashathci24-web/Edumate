@@ -96,6 +96,7 @@ export interface AttendanceRecord {
   year: number;
   section: string;
   date: string;
+  weekNumber?: number;
   subject?: string;
   courseCode?: string;
   records: Record<string, 'present' | 'absent'>; // key: USN
@@ -115,8 +116,20 @@ export interface MarkRecord {
   createdAt: string;
 }
 
+export interface TimetableEntry {
+  courseCode: string;
+  department: string;
+  year: number;
+  sections: string[];
+  sessionsPerWeek: number;
+  dayOffsets: number[]; // 0=Mon .. 4=Fri
+}
+
 export interface AttendanceConfig {
   requiredAttendancePercentage: number | null;
+  semesterWeeks?: number;
+  semesterStartDate?: string | null;
+  timetable?: TimetableEntry[];
   updatedAt?: string | null;
   updatedBy?: string | null;
 }
@@ -126,6 +139,9 @@ export interface SectionsConfig {
   years: number[];
   sectionsByDeptYear: Record<string, string[]>; // e.g. "AIML-3": ["A", "B", "C"]
   requiredAttendancePercentage?: number | null;
+  semesterWeeks?: number;
+  semesterStartDate?: string | null;
+  timetable?: TimetableEntry[];
   attendanceRequirementUpdatedAt?: string | null;
   attendanceRequirementUpdatedBy?: string | null;
 }

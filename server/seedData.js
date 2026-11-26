@@ -753,10 +753,46 @@ export const DEMO_STUDENTS = [
   },
 ];
 
+// Three-month (12-week) semester schedule & institutional eligibility rules
+export const SEMESTER_CONFIG = {
+  semesterWeeks: 12,
+  seededHistoryWeeks: 8,
+  semesterStartDate: '2026-09-28', // Monday of Week 1; Weeks 1-8 cover 2026-09-28..2026-11-22 (2 full months)
+  requiredAttendancePercentage: 85,
+  internalAssessmentsCount: 3,
+  internalMaxMarks: 30,
+  requiredInternalAverage: 12,
+};
+
+// Stable weekly timetable: 2 class sessions per course per week for Sections A, B, and C
+const COURSE_DAY_SLOTS = {
+  BAI501G: [0, 2],  // Mon, Wed
+  BAI502G: [1, 3],  // Tue, Thu
+  BAI503T: [0, 3],  // Mon, Thu
+  BAI504T: [1, 4],  // Tue, Fri
+  BAI505L: [2, 4],  // Wed, Fri
+  BAI506E2: [0, 4], // Mon, Fri
+  BBS508AK: [1, 2], // Tue, Wed
+  BBS509TK: [3, 4], // Thu, Fri
+};
+
+export const SEMESTER_TIMETABLE = DEMO_COURSES.map((course) => ({
+  courseCode: course.code,
+  department: course.department,
+  year: course.year,
+  sections: [...course.sections],
+  sessionsPerWeek: 2,
+  dayOffsets: COURSE_DAY_SLOTS[course.code] || [0, 2],
+}));
+
 // Initial Sections Config
 export const INITIAL_SECTIONS_CONFIG = {
   departments: ['AIML', 'CSE', 'IS', 'MECH', 'EC', 'Robotics'],
   years: [1, 2, 3, 4],
+  requiredAttendancePercentage: SEMESTER_CONFIG.requiredAttendancePercentage,
+  semesterWeeks: SEMESTER_CONFIG.semesterWeeks,
+  semesterStartDate: SEMESTER_CONFIG.semesterStartDate,
+  timetable: SEMESTER_TIMETABLE,
   sectionsByDeptYear: {
     'AIML-3': ['A', 'B', 'C'],
     'AIML-1': ['A'],
@@ -825,53 +861,124 @@ export const INITIAL_ASSIGNMENTS = [
   },
 ];
 
-// Initial Attendance
-export const INITIAL_ATTENDANCE = [
-  {
-    id: 'att-001',
-    department: 'AIML',
-    year: 3,
-    section: 'A',
-    date: '2026-10-20',
-    subject: 'BAI504T - Machine Learning',
-    markedByFacultyId: 'fac-vk',
-    createdAt: new Date().toISOString(),
-    records: {
-      '1EM22AI001': 'present',
-      '1EM22AI002': 'present',
-      '1EM22AI003': 'absent',
-      '1EM22AI004': 'present',
-      '1EM22AI005': 'present',
-      '1EM22AI006': 'present',
-      '1EM22AI007': 'absent',
-      '1EM22AI008': 'present',
-      '1EM22AI009': 'present',
-      '1EM22AI010': 'present',
-    },
-  },
-  {
-    id: 'att-002',
-    department: 'AIML',
-    year: 3,
-    section: 'A',
-    date: '2026-10-22',
-    subject: 'BAI504T - Machine Learning',
-    markedByFacultyId: 'fac-vk',
-    createdAt: new Date().toISOString(),
-    records: {
-      '1EM22AI001': 'present',
-      '1EM22AI002': 'present',
-      '1EM22AI003': 'present',
-      '1EM22AI004': 'present',
-      '1EM22AI005': 'absent',
-      '1EM22AI006': 'present',
-      '1EM22AI007': 'present',
-      '1EM22AI008': 'present',
-      '1EM22AI009': 'present',
-      '1EM22AI010': 'present',
-    },
-  },
-];
+function addUtcDays(baseYmd, daysToAdd) {
+  const [y, m, d] = baseYmd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + daysToAdd));
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Deterministic 8-week (first two full months) attendance status for local/test seed data.
+ * Uses no randomness so attendance history stays identical across reloads.
+ */
+function deterministicSessionStatus(studentIdx, courseIdx, weekNumber, slotIdx) {
+  const sessionIdx = (weekNumber - 1) * 2 + slotIdx; // 0..15
+
+  // Showcase realistic scenarios for the first student in Section A (1EM22AI001):
+  // - Course 3 (BAI504T): 14/16 = 87.5% currently above 85%, but Weeks 7 & 8 drop to 50% -> projected < 85%
+  // - Course 2 (BAI503T): 13/16 = 81.25% -> currently below 85%
+  // - Course 0 (BAI501G): 15/16 = 93.75% -> above 85%, 1 safe absence
+  // - Other courses: 16/16 = 100% -> above 85%
+  if (studentIdx === 0) {
+    if (courseIdx === 3) {
+      return (weekNumber === 7 || weekNumber === 8) && slotIdx === 1 ? 'absent' : 'present';
+    }
+    if (courseIdx === 2) {
+      return sessionIdx === 3 || sessionIdx === 9 || sessionIdx === 14 ? 'absent' : 'present';
+    }
+    if (courseIdx === 0) {
+      return sessionIdx === 5 ? 'absent' : 'present';
+    }
+    return 'present';
+  }
+
+  // Deterministic pattern across all 30 students and 8 courses:
+  // produces a realistic mix of 100%, 93.75%, 87.5%, 81.25%, and 75% courses.
+  const bucket = (studentIdx * 5 + courseIdx * 3) % 8;
+  if (bucket === 0) {
+    // 16/16 (100%)
+    return 'present';
+  }
+  if (bucket === 1 || bucket === 2) {
+    // 15/16 (93.75%)
+    const missIdx = (studentIdx + courseIdx) % 16;
+    return sessionIdx === missIdx ? 'absent' : 'present';
+  }
+  if (bucket === 3 || bucket === 4) {
+    // 14/16 (87.5%), with some late-semester dips to demonstrate downward forecasts
+    if (bucket === 4) {
+      return (weekNumber === 7 || weekNumber === 8) && slotIdx === 1 ? 'absent' : 'present';
+    }
+    return sessionIdx === 2 || sessionIdx === 10 ? 'absent' : 'present';
+  }
+  if (bucket === 5 || bucket === 6) {
+    // 13/16 (81.25% - below 85%)
+    return sessionIdx === 1 || sessionIdx === 7 || sessionIdx === 13 ? 'absent' : 'present';
+  }
+  // 12/16 (75% - below 85%)
+  return sessionIdx === 0 || sessionIdx === 5 || sessionIdx === 11 || sessionIdx === 15
+    ? 'absent'
+    : 'present';
+}
+
+export function buildSemesterAttendanceSeed() {
+  const attendanceList = [];
+  const studentsBySection = new Map();
+
+  for (const stu of DEMO_STUDENTS) {
+    const secStudents = studentsBySection.get(stu.section) || [];
+    secStudents.push(stu);
+    studentsBySection.set(stu.section, secStudents);
+  }
+
+  const sections = ['A', 'B', 'C'];
+  for (const section of sections) {
+    const secStudents = studentsBySection.get(section) || [];
+    for (let week = 1; week <= SEMESTER_CONFIG.seededHistoryWeeks; week++) {
+      for (let courseIdx = 0; courseIdx < DEMO_COURSES.length; courseIdx++) {
+        const course = DEMO_COURSES[courseIdx];
+        const timetableEntry = SEMESTER_TIMETABLE[courseIdx];
+        const dayOffsets = timetableEntry?.dayOffsets || [0, 2];
+
+        for (let slotIdx = 0; slotIdx < dayOffsets.length; slotIdx++) {
+          const daysFromStart = (week - 1) * 7 + dayOffsets[slotIdx];
+          const date = addUtcDays(SEMESTER_CONFIG.semesterStartDate, daysFromStart);
+          const records = {};
+
+          for (let stuIdx = 0; stuIdx < secStudents.length; stuIdx++) {
+            const stu = secStudents[stuIdx];
+            records[stu.usn] = deterministicSessionStatus(
+              stuIdx,
+              courseIdx,
+              week,
+              slotIdx
+            );
+          }
+
+          attendanceList.push({
+            id: `att-${course.code}-${section}-w${String(week).padStart(2, '0')}-s${slotIdx + 1}`,
+            department: course.department,
+            year: course.year,
+            section,
+            date,
+            weekNumber: week,
+            courseCode: course.code,
+            subject: `${course.code} - ${course.title}`,
+            markedByFacultyId: course.facultyIds[0],
+            createdAt: `${date}T10:00:00.000Z`,
+            isSampleData: true,
+            records,
+          });
+        }
+      }
+    }
+  }
+
+  return attendanceList.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+}
+
+// Initial Attendance (Deterministic first 8 weeks of the 12-week semester; Weeks 9-12 reserved for forecasting)
+export const INITIAL_ATTENDANCE = buildSemesterAttendanceSeed();
 
 // Initial Marks
 export const INITIAL_MARKS = [

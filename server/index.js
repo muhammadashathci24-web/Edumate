@@ -173,12 +173,28 @@ app.get('/api/sections-config', async (req, res) => {
   }
 });
 
-// Helper to extract normalized attendance requirement config without fabricating a default rule
+// Helper to extract normalized attendance & semester config
 function formatAttendanceConfig(configDoc) {
   const raw = configDoc?.requiredAttendancePercentage;
   const isConfigured = typeof raw === 'number' && Number.isFinite(raw) && raw > 0 && raw <= 100;
+  const rawWeeks = configDoc?.semesterWeeks;
+  const semesterWeeks =
+    typeof rawWeeks === 'number' && Number.isInteger(rawWeeks) && rawWeeks >= 1 && rawWeeks <= 52
+      ? rawWeeks
+      : INITIAL_SECTIONS_CONFIG.semesterWeeks;
+  const semesterStartDate =
+    typeof configDoc?.semesterStartDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(configDoc.semesterStartDate)
+      ? configDoc.semesterStartDate
+      : INITIAL_SECTIONS_CONFIG.semesterStartDate;
+  const timetable = Array.isArray(configDoc?.timetable)
+    ? configDoc.timetable
+    : INITIAL_SECTIONS_CONFIG.timetable;
+
   return {
     requiredAttendancePercentage: isConfigured ? raw : null,
+    semesterWeeks,
+    semesterStartDate,
+    timetable,
     updatedAt: isConfigured ? configDoc?.attendanceRequirementUpdatedAt || null : null,
     updatedBy: isConfigured ? configDoc?.attendanceRequirementUpdatedBy || null : null,
   };
@@ -219,6 +235,22 @@ app.put('/api/attendance-config', requireAdmin, async (req, res) => {
     attendanceRequirementUpdatedBy: updatedBy,
   };
 
+  if (req.body?.semesterWeeks !== undefined) {
+    const parsedWeeks = Number(req.body.semesterWeeks);
+    if (!Number.isInteger(parsedWeeks) || parsedWeeks < 1 || parsedWeeks > 52) {
+      return res.status(400).json({ error: 'Semester weeks must be an integer between 1 and 52.' });
+    }
+    patch.semesterWeeks = parsedWeeks;
+  }
+
+  if (req.body?.semesterStartDate !== undefined) {
+    const startStr = String(req.body.semesterStartDate).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startStr)) {
+      return res.status(400).json({ error: 'Semester start date must be in YYYY-MM-DD format.' });
+    }
+    patch.semesterStartDate = startStr;
+  }
+
   if (isMock) {
     mockStore.sectionsConfig = {
       ...mockStore.sectionsConfig,
@@ -231,7 +263,8 @@ app.put('/api/attendance-config', requireAdmin, async (req, res) => {
 
   try {
     await db.collection('sectionsConfig').doc('default').set(patch, { merge: true });
-    const config = formatAttendanceConfig(patch);
+    const latestDoc = await db.collection('sectionsConfig').doc('default').get();
+    const config = formatAttendanceConfig(latestDoc.exists ? latestDoc.data() : patch);
     broadcastAttendanceChange({ type: 'ATTENDANCE_CONFIG_CHANGED', config });
     res.json({ success: true, config });
   } catch (err) {
@@ -1150,11 +1183,13 @@ app.post('/api/assignments', (req, res) => {
 // Attendance: Get by class
 app.get('/api/attendance', (req, res) => {
   const { department, year, section } = req.query;
+  const sortByDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '') || (a.id || '').localeCompare(b.id || '');
   if (isMock) {
     let list = Array.from(mockStore.attendance.values());
     if (department && year && section) {
       list = list.filter(a => a.department === department && a.year === Number(year) && a.section === section);
     }
+    list.sort(sortByDateDesc);
     return res.json(list);
   }
 
@@ -1165,7 +1200,7 @@ app.get('/api/attendance', (req, res) => {
                  .where('section', '==', section);
   }
   query.get()
-    .then(snapshot => res.json(snapshot.docs.map(d => d.data())))
+    .then(snapshot => res.json(snapshot.docs.map(d => d.data()).sort(sortByDateDesc)))
     .catch(err => res.status(500).json({ error: err.message }));
 });
 
@@ -1453,19 +1488,21 @@ app.get('/api/student/dashboard-data/:usn', async (req, res) => {
       c => c.department === student.department && c.year === student.year && c.sections.includes(student.section)
     );
 
-    // Get attendance for student's class (scoped strictly to this student's status)
+    // Get attendance for student's class (scoped strictly to this student's status, sorted chronologically)
     const attendance = Array.from(mockStore.attendance.values())
       .filter(a => a.department === student.department && a.year === student.year && a.section === student.section)
       .map(att => ({
         id: att.id,
         date: att.date,
+        weekNumber: att.weekNumber,
         department: att.department,
         year: att.year,
         section: att.section,
         subject: att.subject,
         courseCode: att.courseCode,
         status: att.records[normalizedUSN] || 'not recorded',
-      }));
+      }))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.id || '').localeCompare(b.id || ''));
 
     // Get marks
     const marks = Array.from(mockStore.marks.values())
@@ -1520,6 +1557,7 @@ app.get('/api/student/dashboard-data/:usn', async (req, res) => {
         return {
           id: data.id,
           date: data.date,
+          weekNumber: data.weekNumber,
           department: data.department,
           year: data.year,
           section: data.section,
@@ -1527,7 +1565,7 @@ app.get('/api/student/dashboard-data/:usn', async (req, res) => {
           courseCode: data.courseCode,
           status: data.records ? data.records[normalizedUSN] || 'not recorded' : 'not recorded',
         };
-      });
+      }).sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.id || '').localeCompare(b.id || ''));
 
       const mrkSnapshot = await db.collection('marks')
         .where('department', '==', student.department)
