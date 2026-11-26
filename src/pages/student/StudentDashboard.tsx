@@ -9,7 +9,12 @@ import {
   formatAttendancePercentage,
   StudentAttendanceSession,
 } from '../../lib/attendanceAnalysis';
+import {
+  analyzeMarksByCourseSection,
+  StudentMarkEntry,
+} from '../../lib/marksAnalysis';
 import { AttendanceWarningsSection } from '../../components/AttendanceWarningsSection';
+import { MarksWarningsSection } from '../../components/MarksWarningsSection';
 import {
   User,
   BookOpen,
@@ -33,6 +38,7 @@ import { db } from '../../lib/firebase';
 interface AttendanceItem {
   id: string;
   date: string;
+  weekNumber?: number;
   department?: string;
   year?: number;
   section?: string;
@@ -43,6 +49,11 @@ interface AttendanceItem {
 
 interface MarkItem {
   id: string;
+  department?: string;
+  year?: number;
+  section?: string;
+  courseCode?: string;
+  internalNumber?: number;
   assessmentTitle: string;
   maxMarks: number;
   obtainedMarks: number | null;
@@ -54,6 +65,7 @@ export const StudentDashboard: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [attendance, setAttendance] = useState<AttendanceItem[]>([]);
+  const [attendanceCourseFilter, setAttendanceCourseFilter] = useState<string>('ALL');
   const [attendanceConfig, setAttendanceConfig] = useState<AttendanceConfig>({
     requiredAttendancePercentage: null,
   });
@@ -239,7 +251,11 @@ export const StudentDashboard: React.FC = () => {
         if (!isMounted) return;
         try {
           const payload = JSON.parse(event.data);
-          if (payload?.type === 'ATTENDANCE_CHANGED' || payload?.type === 'ATTENDANCE_CONFIG_CHANGED') {
+          if (
+            payload?.type === 'ATTENDANCE_CHANGED' ||
+            payload?.type === 'ATTENDANCE_CONFIG_CHANGED' ||
+            payload?.type === 'MARKS_CHANGED'
+          ) {
             loadStudentData(false);
           }
         } catch {
@@ -285,6 +301,7 @@ export const StudentDashboard: React.FC = () => {
     return attendance.map((att) => ({
       id: att.id,
       date: att.date,
+      weekNumber: att.weekNumber,
       department: att.department || profile?.department || '',
       year: att.year || profile?.year || 3,
       section: att.section || profile?.section || '',
@@ -304,7 +321,12 @@ export const StudentDashboard: React.FC = () => {
         year: profile.year,
         section: profile.section,
       },
-      attendanceConfig.requiredAttendancePercentage
+      attendanceConfig.requiredAttendancePercentage,
+      {
+        semesterWeeks: attendanceConfig.semesterWeeks,
+        semesterStartDate: attendanceConfig.semesterStartDate,
+        timetable: attendanceConfig.timetable,
+      }
     );
   }, [
     normalizedAttendanceSessions,
@@ -313,15 +335,63 @@ export const StudentDashboard: React.FC = () => {
     profile?.year,
     profile?.section,
     attendanceConfig.requiredAttendancePercentage,
+    attendanceConfig.semesterWeeks,
+    attendanceConfig.semesterStartDate,
+    attendanceConfig.timetable,
   ]);
 
   const coursesAtRisk = useMemo(() => {
     return courseSectionAnalyses.filter(
       (a) =>
         a.threshold?.status === 'below_threshold' ||
-        a.threshold?.status === 'at_limit'
+        a.threshold?.status === 'at_limit' ||
+        a.regression.projectedMeetsRequirement === false
     );
   }, [courseSectionAnalyses]);
+
+  const normalizedMarksEntries: StudentMarkEntry[] = useMemo(() => {
+    return marks.map((m) => ({
+      id: m.id,
+      assessmentTitle: m.assessmentTitle,
+      maxMarks: m.maxMarks,
+      obtainedMarks: m.obtainedMarks,
+      department: m.department || profile?.department || '',
+      year: m.year || profile?.year || 3,
+      section: m.section || profile?.section || '',
+      courseCode: m.courseCode,
+      internalNumber: m.internalNumber,
+    }));
+  }, [marks, profile?.department, profile?.year, profile?.section]);
+
+  const courseSectionMarksAnalyses = useMemo(() => {
+    if (!profile?.department || !profile?.year || !profile?.section) return [];
+    return analyzeMarksByCourseSection(normalizedMarksEntries, courses, {
+      department: profile.department,
+      year: profile.year,
+      section: profile.section,
+    });
+  }, [normalizedMarksEntries, courses, profile?.department, profile?.year, profile?.section]);
+
+  const marksAtRisk = useMemo(() => {
+    return courseSectionMarksAnalyses.filter(
+      (m) =>
+        m.status === 'currently_below_target' ||
+        m.status === 'projected_below_target' ||
+        m.status === 'impossible_to_reach' ||
+        m.status === 'final_below_target'
+    );
+  }, [courseSectionMarksAnalyses]);
+
+  const filteredAttendanceHistory = useMemo(() => {
+    if (attendanceCourseFilter === 'ALL') return attendance;
+    const codeUpper = attendanceCourseFilter.toUpperCase();
+    return attendance.filter(
+      (att) =>
+        att.courseCode?.toUpperCase() === codeUpper ||
+        (att.subject || '').toUpperCase().startsWith(`${codeUpper} `) ||
+        (att.subject || '').toUpperCase() === codeUpper
+    );
+  }, [attendance, attendanceCourseFilter]);
 
   // Average marks calculation for scholarship conditions
   const evaluatedMarks = marks.filter((m) => m.obtainedMarks !== null && m.maxMarks > 0);
@@ -736,6 +806,29 @@ export const StudentDashboard: React.FC = () => {
               </div>
             </div>
           )}
+
+          {marksAtRisk.length > 0 && (
+            <div className="card" style={{ borderColor: 'var(--color-danger-border)', backgroundColor: 'var(--color-danger-bg)' }}>
+              <div className="card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-danger)' }}>
+                    Internal Marks Eligibility Alert ({marksAtRisk.length}{' '}
+                    {marksAtRisk.length === 1 ? 'course' : 'courses'} below or projected below 12/30)
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--color-text-main)', marginTop: '0.2rem' }}>
+                    {marksAtRisk.map((m) => `${m.courseCode || m.courseTitle}: ${m.statusLabel}`).join(' • ')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setActiveTab('marks')}
+                >
+                  View Marks Warnings <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -963,45 +1056,72 @@ export const StudentDashboard: React.FC = () => {
             <div className="card-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <CalendarCheck size={20} style={{ color: 'var(--color-secondary)' }} />
-                <h2 className="card-title">My Attendance History</h2>
+                <div>
+                  <h2 className="card-title">My Attendance History (Two-Month Semester Log)</h2>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
+                    Showing {filteredAttendanceHistory.length} of {attendance.length} recorded class sessions
+                  </p>
+                </div>
               </div>
-              {attendancePercentage !== null && (
-                <span
-                  style={{
-                    fontSize: '0.875rem',
-                    fontWeight: 700,
-                    color:
-                      typeof attendanceConfig.requiredAttendancePercentage === 'number'
-                        ? attendancePercentage >= attendanceConfig.requiredAttendancePercentage
-                          ? 'var(--color-success)'
-                          : 'var(--color-danger)'
-                        : 'var(--color-text-main)',
-                  }}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <select
+                  aria-label="Filter attendance history by course"
+                  className="form-select"
+                  style={{ width: 'auto', minWidth: '200px', padding: '0.35rem 0.6rem', fontSize: '0.82rem' }}
+                  value={attendanceCourseFilter}
+                  onChange={(e) => setAttendanceCourseFilter(e.target.value)}
                 >
-                  Overall: {formatAttendancePercentage(attendancePercentage)} ({presentCount}/{recordedAttendance.length} sessions)
-                </span>
-              )}
+                  <option value="ALL">All Enrolled Courses ({attendance.length})</option>
+                  {courses.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.code} — {c.title}
+                    </option>
+                  ))}
+                </select>
+                {attendancePercentage !== null && (
+                  <span
+                    style={{
+                      fontSize: '0.875rem',
+                      fontWeight: 700,
+                      color:
+                        typeof attendanceConfig.requiredAttendancePercentage === 'number'
+                          ? attendancePercentage >= attendanceConfig.requiredAttendancePercentage
+                            ? 'var(--color-success)'
+                            : 'var(--color-danger)'
+                          : 'var(--color-text-main)',
+                    }}
+                  >
+                    Overall: {formatAttendancePercentage(attendancePercentage)} ({presentCount}/{recordedAttendance.length} sessions)
+                  </span>
+                )}
+              </div>
             </div>
             <div className="card-body">
-              {attendance.length === 0 ? (
+              {filteredAttendanceHistory.length === 0 ? (
                 <EmptyState
                   title="No Attendance Records Found"
                   description="Attendance sessions for your class section have not been logged yet by your faculty."
                 />
               ) : (
-                <div className="table-wrapper">
+                <div className="table-wrapper" style={{ maxHeight: '480px', overflowY: 'auto' }}>
                   <table className="data-table">
                     <thead>
                       <tr>
+                        <th>Week</th>
                         <th>Date</th>
-                        <th>Subject / Session</th>
-                        <th>Class & Section</th>
+                        <th>Course / Subject</th>
+                        <th>Class &amp; Section</th>
                         <th>Attendance Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {attendance.map((att) => (
+                      {filteredAttendanceHistory.map((att) => (
                         <tr key={att.id}>
+                          <td>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                              {att.weekNumber ? `Week ${att.weekNumber}` : '—'}
+                            </span>
+                          </td>
                           <td>
                             <strong>{att.date}</strong>
                           </td>
@@ -1031,76 +1151,90 @@ export const StudentDashboard: React.FC = () => {
 
       {/* Tab 4: Marks */}
       {activeTab === 'marks' && (
-        <div className="card">
-          <div className="card-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Award size={20} style={{ color: '#d97706' }} />
-              <h2 className="card-title">My Marks & Assessments</h2>
-            </div>
-          </div>
-          <div className="card-body">
-            {marks.length === 0 ? (
-              <EmptyState
-                title="No Marks Records Found"
-                description="Evaluations or internal marks for your class have not been published yet."
-              />
-            ) : (
-              <div className="table-wrapper">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Assessment Title</th>
-                      <th>Marks Obtained</th>
-                      <th>Maximum Marks</th>
-                      <th>Percentage</th>
-                      <th>Performance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {marks.map((mrk) => {
-                      const score = mrk.obtainedMarks;
-                      const pct = score !== null && mrk.maxMarks > 0
-                        ? Math.round((score / mrk.maxMarks) * 100)
-                        : null;
+        <div>
+          {profile && (
+            <MarksWarningsSection
+              marks={normalizedMarksEntries}
+              courses={courses}
+              studentSection={{
+                department: profile.department || '',
+                year: profile.year || 3,
+                section: profile.section || '',
+              }}
+            />
+          )}
 
-                      return (
-                        <tr key={mrk.id}>
-                          <td>
-                            <strong>{mrk.assessmentTitle}</strong>
-                          </td>
-                          <td>
-                            {score !== null ? (
-                              <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{score}</span>
-                            ) : (
-                              <span style={{ color: 'var(--color-text-subtle)' }}>Pending / Absent</span>
-                            )}
-                          </td>
-                          <td>{mrk.maxMarks}</td>
-                          <td>{pct !== null ? `${pct}%` : 'N/A'}</td>
-                          <td>
-                            {pct !== null ? (
-                              <span
-                                className={`badge ${
-                                  pct >= 75
-                                    ? 'badge-active'
-                                    : pct >= 50
-                                    ? 'badge-warning'
-                                    : 'badge-disabled'
-                                }`}
-                              >
-                                {pct >= 75 ? 'Distinction' : pct >= 50 ? 'Passing' : 'Needs Attention'}
-                              </span>
-                            ) : (
-                              <span className="badge">Unevaluated</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+          <div className="card">
+            <div className="card-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Award size={20} style={{ color: '#d97706' }} />
+                <h2 className="card-title">My Marks &amp; Assessments</h2>
               </div>
-            )}
+            </div>
+            <div className="card-body">
+              {marks.length === 0 ? (
+                <EmptyState
+                  title="No Marks Records Found"
+                  description="Evaluations or internal marks for your class have not been published yet."
+                />
+              ) : (
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Assessment Title</th>
+                        <th>Marks Obtained</th>
+                        <th>Maximum Marks</th>
+                        <th>Percentage</th>
+                        <th>Performance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {marks.map((mrk) => {
+                        const score = mrk.obtainedMarks;
+                        const pct = score !== null && mrk.maxMarks > 0
+                          ? Math.round((score / mrk.maxMarks) * 100)
+                          : null;
+
+                        return (
+                          <tr key={mrk.id}>
+                            <td>
+                              <strong>{mrk.assessmentTitle}</strong>
+                            </td>
+                            <td>
+                              {score !== null ? (
+                                <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{score}</span>
+                              ) : (
+                                <span style={{ color: 'var(--color-text-subtle)' }}>Pending / Absent</span>
+                              )}
+                            </td>
+                            <td>{mrk.maxMarks}</td>
+                            <td>{pct !== null ? `${pct}%` : 'N/A'}</td>
+                            <td>
+                              {pct !== null ? (
+                                <span
+                                  className={`badge ${
+                                    pct >= 75
+                                      ? 'badge-active'
+                                      : pct >= 40
+                                      ? 'badge-warning'
+                                      : 'badge-disabled'
+                                  }`}
+                                >
+                                  {pct >= 75 ? 'Distinction' : pct >= 40 ? 'Meets 12/30' : 'Below 12/30'}
+                                </span>
+                              ) : (
+                                <span className="badge">Unevaluated</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

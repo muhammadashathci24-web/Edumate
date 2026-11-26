@@ -53,9 +53,22 @@ export const AttendanceWarningsSection: React.FC<AttendanceWarningsSectionProps>
       sessions,
       courses,
       studentSection,
-      activeRequirement
+      activeRequirement,
+      {
+        semesterWeeks: attendanceConfig.semesterWeeks,
+        semesterStartDate: attendanceConfig.semesterStartDate,
+        timetable: attendanceConfig.timetable,
+      }
     );
-  }, [sessions, courses, studentSection, activeRequirement]);
+  }, [
+    sessions,
+    courses,
+    studentSection,
+    activeRequirement,
+    attendanceConfig.semesterWeeks,
+    attendanceConfig.semesterStartDate,
+    attendanceConfig.timetable,
+  ]);
 
   const handleApplyPreview = (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,9 +119,9 @@ export const AttendanceWarningsSection: React.FC<AttendanceWarningsSectionProps>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <AlertTriangle size={20} style={{ color: 'var(--color-warning)' }} />
           <div>
-            <h2 className="card-title">Attendance Shortage Warnings &amp; Trend Estimates</h2>
+            <h2 className="card-title">Attendance Shortage Warnings &amp; Semester Forecast</h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
-              Calculated independently for each course and section from your recorded attendance sessions.
+              Calculated independently for each course and section across a {attendanceConfig.semesterWeeks || 12}-week semester.
             </p>
           </div>
         </div>
@@ -383,18 +396,47 @@ export const AttendanceWarningsSection: React.FC<AttendanceWarningsSectionProps>
                       fontSize: '0.82rem',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontWeight: 700, color: 'var(--color-info)' }}>
-                      {renderTrendIcon(item.regression.trendDirection)}
-                      <span>Weekly Trend Forecast (Estimate Only): {item.regression.summary}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontWeight: 700, color: 'var(--color-info)' }}>
+                        {renderTrendIcon(item.regression.trendDirection)}
+                        <span>
+                          Semester-End Regression Forecast (Estimate Only):{' '}
+                          {item.regression.hasEnoughHistory && item.regression.projectedSummary
+                            ? item.regression.projectedSummary
+                            : item.regression.summary}
+                        </span>
+                      </div>
+
+                      {item.regression.hasEnoughHistory && item.regression.projectedMeetsRequirement !== null && (
+                        <span
+                          className={`badge ${
+                            item.regression.projectedMeetsRequirement ? 'badge-active' : 'badge-warning'
+                          }`}
+                        >
+                          {item.regression.projectedMeetsRequirement
+                            ? 'Projected Above Requirement'
+                            : 'Projected Below Requirement'}
+                        </span>
+                      )}
                     </div>
 
                     {item.regression.hasEnoughHistory ? (
-                      <div style={{ marginTop: '0.3rem', color: 'var(--color-text-main)', fontSize: '0.78rem' }}>
-                        Weekly attendance ({item.regression.weeksCount} weeks):{' '}
-                        {item.regression.weeklyPoints
-                          .map((pt) => `W${pt.weekNumber} (${pt.weekStart}): ${formatAttendancePercentage(pt.percentage)}`)
-                          .join(' | ')}
-                      </div>
+                      <>
+                        <div style={{ marginTop: '0.35rem', color: 'var(--color-text-main)', fontSize: '0.78rem' }}>
+                          Recorded ({item.regression.weeksCount} of {item.regression.semesterWeeks} weeks, {item.regression.remainingWeeksCount} remaining):{' '}
+                          {item.regression.weeklyPoints
+                            .map((pt) => `W${pt.weekNumber}: ${formatAttendancePercentage(pt.percentage)}`)
+                            .join(' | ')}
+                        </div>
+                        {item.regression.weeklyForecasts.length > 0 && (
+                          <div style={{ marginTop: '0.2rem', color: 'var(--color-text-muted)', fontSize: '0.76rem' }}>
+                            Projected remaining weeks ({item.regression.sessionsPerWeekSource === 'timetable' ? 'timetable' : 'estimated'} {formatAttendancePercentage(item.regression.sessionsPerWeek || 0).replace('%', '')} sessions/wk):{' '}
+                            {item.regression.weeklyForecasts
+                              .map((fw) => `W${fw.weekNumber}: ${formatAttendancePercentage(fw.predictedPercentage)}`)
+                              .join(' | ')}
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <div style={{ marginTop: '0.25rem', color: 'var(--color-text-muted)', fontSize: '0.78rem' }}>
                         Recorded weeks for this course-section: {item.regression.weeksCount} of 3 required.

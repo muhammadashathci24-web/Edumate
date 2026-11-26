@@ -575,18 +575,22 @@ export const AdminDashboard: React.FC = () => {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text-main)' }}>
-                  Official Attendance Requirement Policy
+                  Official Semester &amp; Attendance Eligibility Policy
                 </span>
                 {typeof attendanceConfig.requiredAttendancePercentage === 'number' ? (
                   <span className="badge badge-active">
-                    Configured: {formatAttendancePercentage(attendanceConfig.requiredAttendancePercentage)}
+                    Attendance: {formatAttendancePercentage(attendanceConfig.requiredAttendancePercentage)}
                   </span>
                 ) : (
                   <span className="badge badge-warning">Not Configured</span>
                 )}
+                <span className="badge badge-student">
+                  {attendanceConfig.semesterWeeks || 12}-Week Semester
+                </span>
+                <span className="badge">Internals: 12/30 Average (3 Internals)</span>
               </div>
               <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
-                Set the official minimum attendance percentage (&gt; 0% and &le; 100%) used for student attendance shortage warnings.
+                Configure the official minimum attendance percentage (&gt; 0% and &le; 100%) across the {attendanceConfig.semesterWeeks || 12}-week semester.
               </p>
             </div>
 
@@ -602,7 +606,7 @@ export const AdminDashboard: React.FC = () => {
                 step="0.5"
                 className="form-input"
                 style={{ width: '110px', padding: '0.4rem 0.6rem' }}
-                placeholder="e.g. 75"
+                placeholder="e.g. 85"
                 value={attendanceReqInput}
                 onChange={(e) => setAttendanceReqInput(e.target.value)}
                 required

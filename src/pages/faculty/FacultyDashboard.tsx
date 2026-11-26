@@ -7,6 +7,12 @@ import {
   formatAttendancePercentage,
   StudentAttendanceSession,
 } from '../../lib/attendanceAnalysis';
+import {
+  analyzeMarksByCourseSection,
+  formatMarksValue,
+  INTERNAL_MAX_MARKS,
+  StudentMarkEntry,
+} from '../../lib/marksAnalysis';
 import { Users, BookOpen, CalendarCheck, Award, Plus, Save } from 'lucide-react';
 
 export const FacultyDashboard: React.FC = () => {
@@ -41,8 +47,10 @@ export const FacultyDashboard: React.FC = () => {
   const [savingAttendance, setSavingAttendance] = useState<boolean>(false);
 
   // --- Marks Tab State ---
+  const [selectedMarksCourseCode, setSelectedMarksCourseCode] = useState<string>('');
+  const [selectedInternalNumber, setSelectedInternalNumber] = useState<1 | 2 | 3>(3);
   const [assessmentTitle, setAssessmentTitle] = useState<string>('');
-  const [maxMarks, setMaxMarks] = useState<number>(50);
+  const [maxMarks, setMaxMarks] = useState<number>(INTERNAL_MAX_MARKS);
   const [marksState, setMarksState] = useState<Record<string, number>>({});
   const [savingMarks, setSavingMarks] = useState<boolean>(false);
 
@@ -101,6 +109,7 @@ export const FacultyDashboard: React.FC = () => {
             (profile?.courseCodes && profile.courseCodes.includes(c.code))
         );
         setSelectedCourseCode(assignedForFaculty[0]?.code || '');
+        setSelectedMarksCourseCode(assignedForFaculty[0]?.code || '');
       }
 
       const attCfgRes = await fetch('/api/attendance-config');
@@ -178,6 +187,7 @@ export const FacultyDashboard: React.FC = () => {
       const sessions: StudentAttendanceSession[] = relevantHistory.map((att) => ({
         id: att.id,
         date: att.date,
+        weekNumber: att.weekNumber,
         department: att.department,
         year: att.year,
         section: att.section,
@@ -193,7 +203,12 @@ export const FacultyDashboard: React.FC = () => {
           year: currentClass.year,
           section: currentClass.section,
         },
-        attendanceConfig.requiredAttendancePercentage
+        attendanceConfig.requiredAttendancePercentage,
+        {
+          semesterWeeks: attendanceConfig.semesterWeeks,
+          semesterStartDate: attendanceConfig.semesterStartDate,
+          timetable: attendanceConfig.timetable,
+        }
       );
       return {
         student: stu,
@@ -207,7 +222,57 @@ export const FacultyDashboard: React.FC = () => {
     selectedCourseCode,
     attendanceHistory,
     attendanceConfig.requiredAttendancePercentage,
+    attendanceConfig.semesterWeeks,
+    attendanceConfig.semesterStartDate,
+    attendanceConfig.timetable,
   ]);
+
+  // Per-student internal marks warning summary for the active course-section
+  const studentMarksWarningRows = useMemo(() => {
+    if (!currentClass || students.length === 0) return [];
+    const activeCourse =
+      assignedSectionCourses.find((c) => c.code === selectedMarksCourseCode) ||
+      assignedSectionCourses[0] ||
+      null;
+
+    const relevantMarks = activeCourse
+      ? marksHistory.filter((m) => {
+          if (m.courseCode) {
+            return m.courseCode.toUpperCase() === activeCourse.code.toUpperCase();
+          }
+          const titleLower = (m.assessmentTitle || '').toLowerCase();
+          return (
+            titleLower.includes(activeCourse.code.toLowerCase()) ||
+            titleLower.includes(activeCourse.title.toLowerCase())
+          );
+        })
+      : marksHistory;
+
+    const courseList = activeCourse ? [activeCourse] : [];
+
+    return students.map((stu) => {
+      const entries: StudentMarkEntry[] = relevantMarks.map((m) => ({
+        id: m.id,
+        assessmentTitle: m.assessmentTitle,
+        maxMarks: m.maxMarks,
+        obtainedMarks: m.records[stu.usn] !== undefined ? m.records[stu.usn] : null,
+        department: m.department,
+        year: m.year,
+        section: m.section,
+        courseCode: m.courseCode,
+        internalNumber: m.internalNumber,
+      }));
+      const analyses = analyzeMarksByCourseSection(entries, courseList, {
+        department: currentClass.department,
+        year: currentClass.year,
+        section: currentClass.section,
+      });
+      return {
+        student: stu,
+        analysis: analyses[0] || null,
+      };
+    });
+  }, [currentClass, students, assignedSectionCourses, selectedMarksCourseCode, marksHistory]);
 
   const handleSaveAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -295,10 +360,13 @@ export const FacultyDashboard: React.FC = () => {
     e.preventDefault();
     if (!currentClass) return;
 
-    if (!assessmentTitle.trim()) {
-      setFeedback({ type: 'danger', message: 'Please enter an assessment title (e.g. Internal Assessment 1).' });
-      return;
-    }
+    const selectedCourse = assignedSectionCourses.find((c) => c.code === selectedMarksCourseCode);
+    const resolvedTitle =
+      assessmentTitle.trim() ||
+      (selectedCourse
+        ? `${selectedCourse.code} - Internal ${selectedInternalNumber}`
+        : `Internal ${selectedInternalNumber}`);
+
     if (!maxMarks || maxMarks <= 0) {
       setFeedback({ type: 'danger', message: 'Maximum marks must be greater than zero.' });
       return;
@@ -322,12 +390,17 @@ export const FacultyDashboard: React.FC = () => {
     try {
       const res = await fetch('/api/marks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           department: currentClass.department,
           year: currentClass.year,
           section: currentClass.section,
-          assessmentTitle: assessmentTitle.trim(),
+          courseCode: selectedCourse?.code,
+          internalNumber: selectedInternalNumber,
+          assessmentTitle: resolvedTitle,
           maxMarks: Number(maxMarks),
           records: marksState,
           facultyId: profile?.uid,
@@ -341,10 +414,23 @@ export const FacultyDashboard: React.FC = () => {
 
       setFeedback({
         type: 'success',
-        message: `Marks for "${assessmentTitle}" in ${currentClass.department} Year ${currentClass.year} (${currentClass.section}) recorded successfully!`,
+        message: `Marks for "${resolvedTitle}" in ${currentClass.department} Year ${currentClass.year} (${currentClass.section}) recorded successfully!`,
       });
 
       setAssessmentTitle('');
+
+      try {
+        const channel = new BroadcastChannel('edumate_attendance');
+        channel.postMessage({
+          type: 'MARKS_CHANGED',
+          department: currentClass.department,
+          year: currentClass.year,
+          section: currentClass.section,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
 
       // Reload marks history
       const mrkRes = await fetch(
@@ -799,7 +885,9 @@ export const FacultyDashboard: React.FC = () => {
                             </td>
                             <td>{safeText}</td>
                             <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                              {analysis?.regression.summary || 'More attendance history is needed for a trend forecast'}
+                              {analysis?.regression.hasEnoughHistory && analysis.regression.projectedSummary
+                                ? analysis.regression.projectedSummary
+                                : analysis?.regression.summary || 'More attendance history is needed for a trend forecast'}
                             </td>
                           </tr>
                         );
@@ -879,19 +967,58 @@ export const FacultyDashboard: React.FC = () => {
             </div>
             <div className="card-body">
               <form onSubmit={handleSaveMarks}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                  {assignedSectionCourses.length > 0 && (
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" htmlFor="marks-course">
+                        Assigned Course <span className="required">*</span>
+                      </label>
+                      <select
+                        id="marks-course"
+                        className="form-select"
+                        value={selectedMarksCourseCode}
+                        onChange={(e) => setSelectedMarksCourseCode(e.target.value)}
+                      >
+                        {assignedSectionCourses.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code} — {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" htmlFor="marks-internal-number">
+                      Internal Assessment <span className="required">*</span>
+                    </label>
+                    <select
+                      id="marks-internal-number"
+                      className="form-select"
+                      value={selectedInternalNumber}
+                      onChange={(e) => setSelectedInternalNumber(Number(e.target.value) as 1 | 2 | 3)}
+                    >
+                      <option value={1}>Internal 1 (of 3)</option>
+                      <option value={2}>Internal 2 (of 3)</option>
+                      <option value={3}>Internal 3 (of 3)</option>
+                    </select>
+                  </div>
+
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label" htmlFor="assessment-title">
-                      Assessment Title <span className="required">*</span>
+                      Assessment Title (Optional)
                     </label>
                     <input
                       id="assessment-title"
                       type="text"
                       className="form-input"
-                      placeholder="e.g. Internal Test 1 or Quiz 2"
+                      placeholder={
+                        selectedMarksCourseCode
+                          ? `${selectedMarksCourseCode} - Internal ${selectedInternalNumber}`
+                          : `Internal ${selectedInternalNumber}`
+                      }
                       value={assessmentTitle}
                       onChange={(e) => setAssessmentTitle(e.target.value)}
-                      required
                     />
                   </div>
 
@@ -903,7 +1030,7 @@ export const FacultyDashboard: React.FC = () => {
                       id="max-marks"
                       type="number"
                       min="1"
-                      max="1000"
+                      max="100"
                       className="form-input"
                       value={maxMarks}
                       onChange={(e) => setMaxMarks(Number(e.target.value))}
@@ -980,6 +1107,80 @@ export const FacultyDashboard: React.FC = () => {
               </form>
             </div>
           </div>
+
+          {/* Section Internal Marks Eligibility Summary */}
+          {students.length > 0 && (
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <h3 className="card-title">
+                    Internal Marks Eligibility Summary (12/30 Target)
+                  </h3>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
+                    {selectedMarksCourseCode ? `${selectedMarksCourseCode} • ` : ''}
+                    {currentClass?.department} Year {currentClass?.year} (Section {currentClass?.section})
+                  </p>
+                </div>
+              </div>
+              <div className="card-body">
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>USN</th>
+                        <th>Student</th>
+                        <th>Recorded Internals</th>
+                        <th>Current / Final Avg</th>
+                        <th>Remaining Avg Needed</th>
+                        <th>Status / Forecast</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {studentMarksWarningRows.map(({ student, analysis }) => {
+                        const avg = analysis?.isFinal
+                          ? analysis.actualFinalAverage
+                          : analysis?.currentAverage;
+                        return (
+                          <tr key={student.usn}>
+                            <td>
+                              <span className="usn-badge">{student.usn}</span>
+                            </td>
+                            <td>
+                              <strong>{student.name}</strong>
+                            </td>
+                            <td style={{ fontSize: '0.82rem' }}>
+                              {analysis && analysis.recordedInternals.length > 0
+                                ? analysis.recordedInternals
+                                    .map((r) => `IA${r.internalNumber}: ${formatMarksValue(r.score)}/30`)
+                                    .join(', ')
+                                : 'None'}
+                            </td>
+                            <td>
+                              {avg !== null && avg !== undefined
+                                ? `${formatMarksValue(avg)} / 30`
+                                : 'N/A'}
+                            </td>
+                            <td>
+                              {analysis
+                                ? analysis.isFinal
+                                  ? 'Completed (3/3)'
+                                  : analysis.cannotReachTarget
+                                  ? `${formatMarksValue(analysis.rawRequiredRemainingAverage!)} (> 30 max)`
+                                  : `${formatMarksValue(analysis.requiredRemainingAverage!)} / 30`
+                                : 'N/A'}
+                            </td>
+                            <td style={{ fontSize: '0.8rem' }}>
+                              {analysis?.statusLabel || 'N/A'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Past Marks Logged */}
           {marksHistory.length > 0 && (
