@@ -84,4 +84,27 @@ describe('Attendance Threshold Calculation', () => {
     expect(rBelowDecimal.safeAbsences).toBe(0);
     expect(formatAttendancePercentage(rBelowDecimal.currentPercentage!)).toBe('74.9%');
   });
+
+  it('handles 85% attendance rule: below, at, and above 85%', () => {
+    // Below 85%: A=13, H=16 (81.25%) -> 0 safe absences
+    const below85 = calculateAttendanceThreshold(13, 16, 85);
+    expect(below85.currentPercentage).toBeCloseTo(81.25, 10);
+    expect(below85.isBelowRequirement).toBe(true);
+    expect(below85.safeAbsences).toBe(0);
+
+    // Exactly at 85%: A=17, H=20 (85%) -> 0 safe absences
+    const at85 = calculateAttendanceThreshold(17, 20, 85);
+    expect(at85.currentPercentage).toBeCloseTo(85, 10);
+    expect(at85.isBelowRequirement).toBe(false);
+    expect(at85.status).toBe('at_limit');
+    expect(at85.safeAbsences).toBe(0);
+
+    // Above 85%: A=18, H=20 (90%) -> floor(18/0.85 - 20) = floor(21.176 - 20) = 1 safe absence
+    // 18/21 = 85.71% >= 85%; 18/22 = 81.82% < 85%
+    const above85 = calculateAttendanceThreshold(18, 20, 85);
+    expect(above85.currentPercentage).toBeCloseTo(90, 10);
+    expect(above85.isBelowRequirement).toBe(false);
+    expect(above85.status).toBe('safe');
+    expect(above85.safeAbsences).toBe(1);
+  });
 });

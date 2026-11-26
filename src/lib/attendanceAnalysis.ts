@@ -241,6 +241,7 @@ export function calculateAttendanceThreshold(
 export interface StudentAttendanceSession {
   id: string;
   date: string;
+  weekNumber?: number;
   department: string;
   year: number;
   section: string;
@@ -257,26 +258,57 @@ export interface CourseRef {
   sections?: string[];
 }
 
+export interface TimetableSlotRef {
+  courseCode: string;
+  department: string;
+  year: number;
+  sections?: string[];
+  sessionsPerWeek: number;
+}
+
 export interface WeeklyAttendancePoint {
-  weekNumber: number; // x: chronological week number (1, 2, 3, ...)
+  weekNumber: number; // x: week number in semester (1..semesterWeeks) or chronological week
   weekStart: string;  // YYYY-MM-DD (Monday of that week in UTC)
   attended: number;
   held: number;
   percentage: number; // y: 100 * attended / held
 }
 
+export interface WeeklyForecastPoint {
+  weekNumber: number;
+  predictedPercentage: number;
+  sessionsPerWeek: number;
+}
+
 export type RegressionTrendDirection = 'up' | 'down' | 'stable';
+
+export interface AttendanceRegressionOptions {
+  semesterWeeks?: number;
+  semesterStartDate?: string | null;
+  sessionsPerWeek?: number | null;
+  sessionsPerWeekSource?: 'timetable' | 'estimated';
+  requiredPercentage?: number | null;
+}
 
 export interface AttendanceRegressionResult {
   hasEnoughHistory: boolean;
   weeksCount: number;
+  semesterWeeks: number;
+  currentWeekNumber: number;
+  remainingWeeksCount: number;
+  sessionsPerWeek: number | null;
+  sessionsPerWeekSource: 'timetable' | 'estimated' | null;
   weeklyPoints: WeeklyAttendancePoint[];
+  weeklyForecasts: WeeklyForecastPoint[];
   slope: number | null;
   intercept: number | null;
   rawForecastPercentage: number | null;
   forecastNextWeekPercentage: number | null;
+  projectedEndPercentage: number | null;
+  projectedMeetsRequirement: boolean | null;
   trendDirection: RegressionTrendDirection | null;
   summary: string;
+  projectedSummary: string | null;
   disclaimer: string;
 }
 
@@ -295,9 +327,11 @@ export interface CourseSectionAttendanceAnalysis {
   regression: AttendanceRegressionResult;
 }
 
+export const DEFAULT_ATTENDANCE_REQUIREMENT = 85;
+export const DEFAULT_SEMESTER_WEEKS = 12;
 const REGRESSION_MIN_WEEKS = 3;
 const REGRESSION_DISCLAIMER =
-  'Estimate only (simple linear regression on weekly attendance) — not an official attendance decision.';
+  'Estimate only (simple linear regression on weekly attendance) — not an official attendance decision. The exact threshold calculation is authoritative.';
 
 /**
  * Parses a YYYY-MM-DD (or ISO) date string and returns the UTC Monday
@@ -329,14 +363,27 @@ export function getUtcWeekStart(dateStr: string): string | null {
   return weekStart.toISOString().slice(0, 10);
 }
 
+function getSemesterWeekNumber(weekStartYmd: string, semesterStartDate?: string | null): number | null {
+  if (!semesterStartDate) return null;
+  const startWeek = getUtcWeekStart(semesterStartDate);
+  if (!startWeek) return null;
+
+  const [sy, sm, sd] = startWeek.split('-').map(Number);
+  const [wy, wm, wd] = weekStartYmd.split('-').map(Number);
+  const diffDays = Math.round((Date.UTC(wy, wm - 1, wd) - Date.UTC(sy, sm - 1, sd)) / 86400000);
+  const weekNum = Math.floor(diffDays / 7) + 1;
+  return weekNum >= 1 ? weekNum : null;
+}
+
 /**
  * Groups chronological attendance sessions into weekly attendance percentages.
  * Ignores 'not recorded' sessions and invalid dates without fabricating data.
  */
 export function groupAttendanceByWeek(
-  sessions: ReadonlyArray<Pick<StudentAttendanceSession, 'date' | 'status'>>
+  sessions: ReadonlyArray<Pick<StudentAttendanceSession, 'date' | 'status' | 'weekNumber'>>,
+  semesterStartDate?: string | null
 ): WeeklyAttendancePoint[] {
-  const byWeek = new Map<string, { attended: number; held: number }>();
+  const byWeek = new Map<string, { attended: number; held: number; explicitWeek?: number }>();
 
   for (const session of sessions) {
     if (session.status !== 'present' && session.status !== 'absent') {
@@ -347,7 +394,14 @@ export function groupAttendanceByWeek(
       continue;
     }
 
-    const current = byWeek.get(weekStart) || { attended: 0, held: 0 };
+    const current = byWeek.get(weekStart) || {
+      attended: 0,
+      held: 0,
+      explicitWeek:
+        typeof session.weekNumber === 'number' && Number.isInteger(session.weekNumber) && session.weekNumber >= 1
+          ? session.weekNumber
+          : undefined,
+    };
     current.held += 1;
     if (session.status === 'present') {
       current.attended += 1;
@@ -358,47 +412,81 @@ export function groupAttendanceByWeek(
   const sortedWeeks = Array.from(byWeek.keys()).sort((a, b) => a.localeCompare(b));
 
   return sortedWeeks.map((weekStart, index) => {
-    const { attended, held } = byWeek.get(weekStart)!;
+    const entry = byWeek.get(weekStart)!;
+    const derivedWeek =
+      entry.explicitWeek ??
+      getSemesterWeekNumber(weekStart, semesterStartDate) ??
+      index + 1;
     return {
-      weekNumber: index + 1,
+      weekNumber: derivedWeek,
       weekStart,
-      attended,
-      held,
-      percentage: (100 * attended) / held,
+      attended: entry.attended,
+      held: entry.held,
+      percentage: (100 * entry.attended) / entry.held,
     };
   });
 }
 
 /**
- * Performs simple least-squares linear regression on weekly attendance percentages.
- * - Requires at least 3 distinct weeks with attendance data.
- * - Clamps next-week forecast between 0% and 100%.
+ * Performs simple least-squares linear regression on weekly attendance percentages
+ * and projects end-of-semester attendance through the final semester week (week 12).
+ * - Requires at least 3 completed weeks with attendance data.
+ * - Clamps predicted weekly percentages and projected semester-end % to [0, 100].
  * - Serves strictly as a trend estimate and never alters threshold safe absences.
  */
 export function computeAttendanceRegressionForecast(
-  sessions: ReadonlyArray<Pick<StudentAttendanceSession, 'date' | 'status'>>
+  sessions: ReadonlyArray<Pick<StudentAttendanceSession, 'date' | 'status' | 'weekNumber'>>,
+  options: AttendanceRegressionOptions = {}
 ): AttendanceRegressionResult {
-  const weeklyPoints = groupAttendanceByWeek(sessions);
+  const semesterWeeks =
+    typeof options.semesterWeeks === 'number' &&
+    Number.isInteger(options.semesterWeeks) &&
+    options.semesterWeeks >= 1
+      ? options.semesterWeeks
+      : DEFAULT_SEMESTER_WEEKS;
+  const requiredPercentage =
+    typeof options.requiredPercentage === 'number' &&
+    validateAttendanceRequirement(options.requiredPercentage).valid
+      ? options.requiredPercentage
+      : DEFAULT_ATTENDANCE_REQUIREMENT;
+
+  const weeklyPoints = groupAttendanceByWeek(sessions, options.semesterStartDate);
   const weeksCount = weeklyPoints.length;
+  const currentWeekNumber =
+    weeksCount > 0 ? Math.max(...weeklyPoints.map((w) => w.weekNumber)) : 0;
+  const remainingWeeksCount = Math.max(0, semesterWeeks - currentWeekNumber);
 
   if (weeksCount < REGRESSION_MIN_WEEKS) {
     return {
       hasEnoughHistory: false,
       weeksCount,
+      semesterWeeks,
+      currentWeekNumber,
+      remainingWeeksCount,
+      sessionsPerWeek: null,
+      sessionsPerWeekSource: null,
       weeklyPoints,
+      weeklyForecasts: [],
       slope: null,
       intercept: null,
       rawForecastPercentage: null,
       forecastNextWeekPercentage: null,
+      projectedEndPercentage: null,
+      projectedMeetsRequirement: null,
       trendDirection: null,
       summary: 'More attendance history is needed for a trend forecast',
+      projectedSummary: null,
       disclaimer: REGRESSION_DISCLAIMER,
     };
   }
 
+  let totalAttended = 0;
+  let totalHeld = 0;
   let sumX = 0;
   let sumY = 0;
   for (const pt of weeklyPoints) {
+    totalAttended += pt.attended;
+    totalHeld += pt.held;
     sumX += pt.weekNumber;
     sumY += pt.percentage;
   }
@@ -417,9 +505,45 @@ export function computeAttendanceRegressionForecast(
 
   const slope = sxx === 0 ? 0 : sxy / sxx;
   const intercept = yMean - slope * xMean;
-  const nextWeekX = weeksCount + 1;
+
+  const nextWeekX = currentWeekNumber + 1;
   const rawForecastPercentage = slope * nextWeekX + intercept;
   const forecastNextWeekPercentage = Math.min(100, Math.max(0, rawForecastPercentage));
+
+  const hasTimetableRate =
+    typeof options.sessionsPerWeek === 'number' &&
+    Number.isFinite(options.sessionsPerWeek) &&
+    options.sessionsPerWeek > 0;
+  const sessionsPerWeek = hasTimetableRate
+    ? options.sessionsPerWeek!
+    : totalHeld / weeksCount;
+  const sessionsPerWeekSource: 'timetable' | 'estimated' = hasTimetableRate
+    ? options.sessionsPerWeekSource || 'timetable'
+    : 'estimated';
+
+  const weeklyForecasts: WeeklyForecastPoint[] = [];
+  let projectedFutureAttended = 0;
+  let projectedFutureHeld = 0;
+
+  for (let week = currentWeekNumber + 1; week <= semesterWeeks; week++) {
+    const predictedPercentage = Math.min(100, Math.max(0, slope * week + intercept));
+    weeklyForecasts.push({
+      weekNumber: week,
+      predictedPercentage,
+      sessionsPerWeek,
+    });
+    projectedFutureHeld += sessionsPerWeek;
+    projectedFutureAttended += sessionsPerWeek * (predictedPercentage / 100);
+  }
+
+  const currentPercentage = totalHeld > 0 ? (100 * totalAttended) / totalHeld : 0;
+  const totalSemesterSessions = totalHeld + projectedFutureHeld;
+  const rawProjectedEnd =
+    totalSemesterSessions > 0
+      ? (100 * (totalAttended + projectedFutureAttended)) / totalSemesterSessions
+      : currentPercentage;
+  const projectedEndPercentage = Math.min(100, Math.max(0, rawProjectedEnd));
+  const projectedMeetsRequirement = projectedEndPercentage >= requiredPercentage;
 
   let trendDirection: RegressionTrendDirection = 'stable';
   let trendLabel = 'Attendance is stable';
@@ -431,19 +555,38 @@ export function computeAttendanceRegressionForecast(
     trendLabel = 'Attendance is trending up';
   }
 
-  const forecastLabel = formatAttendancePercentage(forecastNextWeekPercentage);
+  const currLabel = formatAttendancePercentage(currentPercentage);
+  const projLabel = formatAttendancePercentage(projectedEndPercentage);
+  const reqLabel = formatAttendancePercentage(requiredPercentage);
+  const comparisonWord =
+    projectedEndPercentage > requiredPercentage
+      ? 'above'
+      : projectedEndPercentage === requiredPercentage
+      ? 'at'
+      : 'below';
+
+  const projectedSummary = `Current: ${currLabel}. At the current attendance trend, projected semester-end attendance is ${projLabel}, ${comparisonWord} the ${reqLabel} requirement.`;
 
   return {
     hasEnoughHistory: true,
     weeksCount,
+    semesterWeeks,
+    currentWeekNumber,
+    remainingWeeksCount,
+    sessionsPerWeek,
+    sessionsPerWeekSource,
     weeklyPoints,
+    weeklyForecasts,
     slope,
     intercept,
     rawForecastPercentage,
     forecastNextWeekPercentage,
+    projectedEndPercentage,
+    projectedMeetsRequirement,
     trendDirection,
-    summary: `${trendLabel} (estimated next week: ${forecastLabel})`,
-    disclaimer: REGRESSION_DISCLAIMER,
+    summary: `${trendLabel} (${projectedSummary})`,
+    projectedSummary,
+    disclaimer: `Estimate only (simple linear regression through week ${semesterWeeks}) — not an official attendance decision. The exact ${reqLabel} threshold calculation is authoritative.`,
   };
 }
 
@@ -487,6 +630,12 @@ function findMatchingCourse(
   return null;
 }
 
+export interface SemesterAnalysisOptions {
+  semesterWeeks?: number;
+  semesterStartDate?: string | null;
+  timetable?: ReadonlyArray<TimetableSlotRef>;
+}
+
 /**
  * Analyzes attendance independently per course and section.
  * Never mixes attendance records across different courses/subjects or sections.
@@ -497,7 +646,8 @@ export function analyzeAttendanceByCourseSection(
   sessions: ReadonlyArray<StudentAttendanceSession>,
   enrolledCourses: ReadonlyArray<CourseRef>,
   studentSection: { department: string; year: number; section: string },
-  requiredPercentage: number | null | undefined
+  requiredPercentage: number | null | undefined,
+  semesterOptions: SemesterAnalysisOptions = {}
 ): CourseSectionAttendanceAnalysis[] {
   if (requiredPercentage !== null && requiredPercentage !== undefined) {
     const validation = validateAttendanceRequirement(requiredPercentage);
@@ -609,7 +759,23 @@ export function analyzeAttendanceByCourseSection(
         ? calculateAttendanceThreshold(attended, held, requiredPercentage)
         : null;
 
-    const regression = computeAttendanceRegressionForecast(recorded);
+    const timetableMatch = (semesterOptions.timetable || []).find(
+      (t) =>
+        bucket.courseCode &&
+        t.courseCode.trim().toUpperCase() === bucket.courseCode.trim().toUpperCase() &&
+        t.department.trim().toUpperCase() === bucket.department.trim().toUpperCase() &&
+        t.year === bucket.year &&
+        (!t.sections ||
+          t.sections.map((s) => s.trim().toUpperCase()).includes(bucket.section.trim().toUpperCase()))
+    );
+
+    const regression = computeAttendanceRegressionForecast(recorded, {
+      semesterWeeks: semesterOptions.semesterWeeks,
+      semesterStartDate: semesterOptions.semesterStartDate,
+      sessionsPerWeek: timetableMatch ? timetableMatch.sessionsPerWeek : null,
+      sessionsPerWeekSource: timetableMatch ? 'timetable' : 'estimated',
+      requiredPercentage,
+    });
 
     results.push({
       key: bucket.key,

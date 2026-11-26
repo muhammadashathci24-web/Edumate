@@ -179,4 +179,105 @@ describe('Attendance Linear Regression Forecast & Course-Section Isolation', () 
     expect(mlSecAAfter.regression.trendDirection).toBe('down');
     expect(mlSecAAfter.regression.summary).toContain('Attendance is trending down');
   });
+
+  it('projects end-of-semester (week 12) below 85% for a student currently above 85% whose trend is declining', () => {
+    // 8 weeks, 2 sessions/week (Weeks 1-6 = 100%, Week 7 = 50%, Week 8 = 50%) -> A=14, H=16 (87.5% >= 85%)
+    const sessions: StudentAttendanceSession[] = [];
+    for (let w = 1; w <= 8; w++) {
+      const day1 = `2026-${w <= 4 ? '10' : '11'}-${String(((w - 1) % 4) * 7 + 1).padStart(2, '0')}`;
+      const day2 = `2026-${w <= 4 ? '10' : '11'}-${String(((w - 1) % 4) * 7 + 3).padStart(2, '0')}`;
+      sessions.push({
+        id: `s-${w}-1`,
+        date: day1,
+        weekNumber: w,
+        department: 'AIML',
+        year: 3,
+        section: 'A',
+        courseCode: 'BAI504T',
+        status: 'present',
+      });
+      sessions.push({
+        id: `s-${w}-2`,
+        date: day2,
+        weekNumber: w,
+        department: 'AIML',
+        year: 3,
+        section: 'A',
+        courseCode: 'BAI504T',
+        status: w >= 7 ? 'absent' : 'present',
+      });
+    }
+
+    const courses: CourseRef[] = [
+      { code: 'BAI504T', title: 'Machine Learning', department: 'AIML', year: 3, sections: ['A'] },
+    ];
+    const [analysis] = analyzeAttendanceByCourseSection(
+      sessions,
+      courses,
+      { department: 'AIML', year: 3, section: 'A' },
+      85,
+      {
+        semesterWeeks: 12,
+        timetable: [{ courseCode: 'BAI504T', department: 'AIML', year: 3, sections: ['A'], sessionsPerWeek: 2 }],
+      }
+    );
+
+    expect(analysis.currentPercentage).toBeCloseTo(87.5, 8);
+    expect(analysis.threshold?.isBelowRequirement).toBe(false);
+    expect(analysis.regression.hasEnoughHistory).toBe(true);
+    expect(analysis.regression.remainingWeeksCount).toBe(4);
+    expect(analysis.regression.weeklyForecasts).toHaveLength(4);
+    expect(analysis.regression.sessionsPerWeek).toBe(2);
+    expect(analysis.regression.sessionsPerWeekSource).toBe('timetable');
+    expect(analysis.regression.projectedEndPercentage!).toBeLessThan(85);
+    expect(analysis.regression.projectedMeetsRequirement).toBe(false);
+    expect(analysis.regression.projectedSummary).toContain('Current: 87.5%');
+    expect(analysis.regression.projectedSummary).toContain('below the 85% requirement');
+  });
+
+  it('projects end-of-semester above 85% when attendance stays high through 8 weeks', () => {
+    const sessions: StudentAttendanceSession[] = [];
+    for (let w = 1; w <= 8; w++) {
+      const day1 = `2026-${w <= 4 ? '10' : '11'}-${String(((w - 1) % 4) * 7 + 1).padStart(2, '0')}`;
+      const day2 = `2026-${w <= 4 ? '10' : '11'}-${String(((w - 1) % 4) * 7 + 3).padStart(2, '0')}`;
+      sessions.push({
+        id: `ok-${w}-1`,
+        date: day1,
+        weekNumber: w,
+        department: 'AIML',
+        year: 3,
+        section: 'A',
+        courseCode: 'BAI501G',
+        status: 'present',
+      });
+      sessions.push({
+        id: `ok-${w}-2`,
+        date: day2,
+        weekNumber: w,
+        department: 'AIML',
+        year: 3,
+        section: 'A',
+        courseCode: 'BAI501G',
+        status: w === 3 ? 'absent' : 'present',
+      });
+    }
+
+    const courses: CourseRef[] = [
+      { code: 'BAI501G', title: 'Computer Vision', department: 'AIML', year: 3, sections: ['A'] },
+    ];
+    const [analysis] = analyzeAttendanceByCourseSection(
+      sessions,
+      courses,
+      { department: 'AIML', year: 3, section: 'A' },
+      85,
+      { semesterWeeks: 12 }
+    );
+
+    expect(analysis.currentPercentage).toBeCloseTo(93.75, 8);
+    expect(analysis.threshold?.safeAbsences).toBe(1);
+    expect(analysis.regression.sessionsPerWeekSource).toBe('estimated');
+    expect(analysis.regression.projectedEndPercentage!).toBeGreaterThanOrEqual(85);
+    expect(analysis.regression.projectedMeetsRequirement).toBe(true);
+    expect(analysis.regression.projectedSummary).toContain('above the 85% requirement');
+  });
 });
